@@ -19,8 +19,9 @@ jobs:
 
       - name: Use published bemfa-go module
         run: |
-          go get github.com/leganck/bemfa-go@latest
+          # Drop local replace first; otherwise go get still resolves ../bemfa-go
           go mod edit -dropreplace=github.com/leganck/bemfa-go
+          go get github.com/leganck/bemfa-go@latest
           go mod tidy
 
       - name: Vet

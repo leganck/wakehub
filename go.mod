@@ -5,7 +5,7 @@ go 1.21
 require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/grandcat/zeroconf v1.0.0
-	github.com/leganck/bemfa-go v0.0.0
+	github.com/leganck/bemfa-go v1.0.0
 )
 
 require (
@@ -18,4 +18,5 @@ require (
 	golang.org/x/sys v0.22.0 // indirect
 )
 
+// Local development: sibling checkout. CI drops this replace.
 replace github.com/leganck/bemfa-go => ../bemfa-go
