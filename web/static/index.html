@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WOL 管理</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="page">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true"></div>
+        <div>
+          <h1>WOL</h1>
+          <p class="brand-sub">局域网唤醒控制台</p>
+        </div>
+      </div>
+      <div id="statusBar" class="status-chip muted">加载中…</div>
+    </header>
+
+    <nav class="subnav" aria-label="主导航">
+      <button data-tab="devices" class="nav-pill active" type="button">设备</button>
+      <button data-tab="discover" class="nav-pill" type="button">发现</button>
+      <button data-tab="mqtt" class="nav-pill" type="button">MQTT</button>
+      <button data-tab="settings" class="nav-pill" type="button">设置</button>
+    </nav>
+
+    <main>
+      <section id="tab-devices" class="tab active">
+        <div class="section-head">
+          <div>
+            <h2>设备</h2>
+            <p class="section-desc">管理 Magic Packet 与关机客户端绑定</p>
+          </div>
+          <div class="section-actions">
+            <button id="btnRefreshDevices" class="btn btn-secondary" type="button">刷新</button>
+            <button id="btnAddDevice" class="btn btn-primary" type="button">添加设备</button>
+          </div>
+        </div>
+        <div id="deviceList" class="stack"></div>
+      </section>
+
+      <section id="tab-discover" class="tab">
+        <div class="section-head">
+          <div>
+            <h2>发现</h2>
+            <p class="section-desc">在线客户端与 mDNS 结果</p>
+          </div>
+          <div class="section-actions">
+            <button id="btnRefreshDiscover" class="btn btn-secondary" type="button">刷新</button>
+          </div>
+        </div>
+
+        <h3 class="block-title">已连接客户端</h3>
+        <div id="clientList" class="stack"></div>
+
+        <h3 class="block-title">mDNS 发现</h3>
+        <div id="mdnsList" class="stack"></div>
+      </section>
+
+      <section id="tab-mqtt" class="tab">
+        <div class="section-head">
+          <div>
+            <h2>MQTT</h2>
+            <p class="section-desc">巴法云连接状态与运行日志</p>
+          </div>
+          <div class="section-actions">
+            <button id="btnRefreshMQTT" class="btn btn-secondary" type="button">刷新</button>
+            <button id="btnClearMQTTLogs" class="btn btn-utility" type="button">清空日志</button>
+          </div>
+        </div>
+
+        <div id="mqttStatus" class="card mqtt-status">
+          <div class="mqtt-status-row">
+            <div>
+              <div class="field-label">连接状态</div>
+              <div id="mqttConnText" class="mqtt-conn muted">加载中…</div>
+            </div>
+            <span id="mqttConnBadge" class="badge off">—</span>
+          </div>
+          <div class="mqtt-grid">
+            <div>
+              <div class="field-label">UID</div>
+              <div id="mqttUID" class="meta">—</div>
+            </div>
+            <div>
+              <div class="field-label">已订阅主题</div>
+              <div id="mqttTopicCount" class="meta">0</div>
+            </div>
+            <div>
+              <div class="field-label">连接时间</div>
+              <div id="mqttConnectedAt" class="meta">—</div>
+            </div>
+            <div>
+              <div class="field-label">最近错误</div>
+              <div id="mqttLastError" class="meta">无</div>
+            </div>
+          </div>
+          <div>
+            <div class="field-label">主题绑定</div>
+            <div id="mqttTopics" class="topic-list meta">暂无订阅</div>
+          </div>
+        </div>
+
+        <h3 class="block-title">MQTT 日志</h3>
+        <div id="mqttLogBox" class="log-box" aria-live="polite"></div>
+      </section>
+
+      <section id="tab-settings" class="tab">
+        <div class="section-head">
+          <div>
+            <h2>设置</h2>
+            <p class="section-desc">全局监听、巴法与客户端鉴权</p>
+          </div>
+        </div>
+        <form id="settingsForm" class="card form-card">
+          <label class="field">
+            <span class="field-label">监听地址</span>
+            <input name="listen" placeholder=":8080" autocomplete="off" />
+          </label>
+          <label class="field">
+            <span class="field-label">巴法 UID（私钥）</span>
+            <input name="bemfaUID" placeholder="uid" autocomplete="off" />
+          </label>
+          <label class="field">
+            <span class="field-label">客户端 Token</span>
+            <input name="clientToken" placeholder="可选" autocomplete="off" />
+          </label>
+          <label class="field">
+            <span class="field-label">WS 路径</span>
+            <input name="wsPath" placeholder="/api/ws/client" autocomplete="off" />
+          </label>
+          <div class="form-footer">
+            <button type="submit" class="btn btn-primary">保存设置</button>
+            <p class="fine-print">修改监听地址需重启服务端进程后生效。</p>
+          </div>
+        </form>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="deviceDialog">
+    <form method="dialog" id="deviceForm" class="card dialog-card">
+      <h3 id="deviceDialogTitle">设备</h3>
+      <input type="hidden" name="id" />
+      <label class="field">
+        <span class="field-label">名称</span>
+        <input name="name" required />
+      </label>
+      <label class="field">
+        <span class="field-label">MAC</span>
+        <input name="mac" required placeholder="AA:BB:CC:DD:EE:FF" />
+      </label>
+      <label class="field">
+        <span class="field-label">广播地址</span>
+        <input name="broadcast" placeholder="空=本机全部广播" />
+      </label>
+      <div class="field-grid">
+        <label class="field">
+          <span class="field-label">端口</span>
+          <input name="port" type="number" value="9" />
+        </label>
+        <label class="field">
+          <span class="field-label">重复次数</span>
+          <input name="repeat" type="number" value="3" />
+        </label>
+      </div>
+      <label class="field">
+        <span class="field-label">绑定客户端 Key</span>
+        <input name="boundClientKey" placeholder="可选" />
+      </label>
+      <label class="check">
+        <input name="bemfaEnable" type="checkbox" />
+        <span>启用巴法</span>
+      </label>
+      <label class="field">
+        <span class="field-label">巴法主题</span>
+        <input name="bemfaTopic" placeholder="空则自动生成 *001" />
+      </label>
+      <label class="field">
+        <span class="field-label">巴法显示名</span>
+        <input name="bemfaName" placeholder="默认同名称" />
+      </label>
+      <div class="dialog-actions">
+        <button value="cancel" type="submit" class="btn btn-secondary">取消</button>
+        <button id="btnSaveDevice" value="save" type="submit" class="btn btn-primary">保存</button>
+      </div>
+      <p id="deviceFormError" class="error"></p>
+    </form>
+  </dialog>
+
+  <script src="/app.js"></script>
+</body>
+</html>

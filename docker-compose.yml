@@ -1,0 +1,34 @@
+# WOL 服务端 — 桥接网络示例（开发 / 简易部署）
+#
+# 前置：父目录需同时包含 wol 与 bemfa-go，例如：
+#   GolandProjects/
+#     bemfa-go/
+#     wol/          ← 在本目录执行 compose
+#
+# 启动：
+#   docker compose up -d --build
+# 访问：
+#   http://127.0.0.1:8080
+#
+# 说明：
+# - 配置持久化在 ./data/config.json
+# - 桥接模式下 Magic Packet 广播可能无法直达局域网二层；
+#   生产唤醒建议用 deploy/docker-compose.macvlan.yml（Linux）
+#   或 network_mode: host（仅 Linux）
+
+services:
+  wol-server:
+    build:
+      context: ..
+      dockerfile: wol/deploy/Dockerfile.context
+    image: wol-server:local
+    container_name: wol-server
+    restart: unless-stopped
+    ports:
+      - "${WOL_PORT:-8080}:8080"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - TZ=${TZ:-Asia/Shanghai}
+    # Linux 同网段唤醒可选：取消注释下一行并注释掉 ports
+    # network_mode: host

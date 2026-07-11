@@ -1,0 +1,10 @@
+FROM alpine:3.20
+RUN apk add --no-cache ca-certificates tzdata \
+ && adduser -D -H -u 10001 wol
+WORKDIR /app
+COPY wol-server /app/wol-server
+RUN mkdir -p /app/data && chown -R wol:wol /app
+USER wol
+EXPOSE 8080
+VOLUME ["/app/data"]
+ENTRYPOINT ["/app/wol-server", "-config", "/app/data/config.json", "-listen", ":8080"]

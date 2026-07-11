@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Use published bemfa-go module
+        run: |
+          go get github.com/leganck/bemfa-go@latest
+          go mod edit -dropreplace=github.com/leganck/bemfa-go
+          go mod tidy
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
+      - name: Build
+        run: |
+          go build -o /tmp/wol-server ./cmd/server
+          go build -o /tmp/wol-client ./cmd/client

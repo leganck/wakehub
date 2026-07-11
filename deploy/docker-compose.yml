@@ -1,0 +1,21 @@
+# WOL 服务端 — 桥接网络示例（从 monorepo 父目录构建）
+#
+# 在 wol 目录执行：
+#   docker compose -f deploy/docker-compose.yml up -d --build
+#
+# 或与根目录 docker-compose.yml 等价用法。
+
+services:
+  wol-server:
+    build:
+      context: ../..
+      dockerfile: wol/deploy/Dockerfile.context
+    image: wol-server:local
+    container_name: wol-server
+    restart: unless-stopped
+    ports:
+      - "${WOL_PORT:-8080}:8080"
+    volumes:
+      - ../data:/app/data
+    environment:
+      - TZ=${TZ:-Asia/Shanghai}

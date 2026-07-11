@@ -1,0 +1,284 @@
+package web
+
+import (
+	"encoding/json"
+	"io/fs"
+	"net/http"
+	"strconv"
+	"strings"
+
+	"github.com/leganck/wol/internal/clientlink"
+	"github.com/leganck/wol/internal/config"
+	"github.com/leganck/wol/internal/device"
+	"github.com/leganck/wol/internal/mdns"
+	"github.com/leganck/wol/web"
+)
+
+type Server struct {
+	store   *config.Store
+	devices *device.Service
+	hub     *clientlink.Hub
+	browser *mdns.Browser
+	mux     *http.ServeMux
+}
+
+func New(store *config.Store, devices *device.Service, hub *clientlink.Hub, browser *mdns.Browser) *Server {
+	s := &Server{store: store, devices: devices, hub: hub, browser: browser, mux: http.NewServeMux()}
+	s.routes()
+	return s
+}
+
+func (s *Server) Handler() http.Handler { return s.mux }
+
+func (s *Server) routes() {
+	s.mux.HandleFunc("/api/status", s.handleStatus)
+	s.mux.HandleFunc("/api/settings", s.handleSettings)
+	s.mux.HandleFunc("/api/devices", s.handleDevices)
+	s.mux.HandleFunc("/api/devices/", s.handleDeviceSub)
+	s.mux.HandleFunc("/api/clients", s.handleClients)
+	s.mux.HandleFunc("/api/discover", s.handleDiscover)
+	s.mux.HandleFunc("/api/mqtt", s.handleMQTT)
+	s.mux.HandleFunc("/api/mqtt/logs", s.handleMQTTLogs)
+
+	settings := s.store.Settings()
+	wsPath := settings.WSPath
+	if wsPath == "" {
+		wsPath = config.DefaultWSPath
+	}
+	s.mux.HandleFunc(wsPath, s.hub.HandleWS)
+
+	staticFS, err := fs.Sub(web.StaticFS, "static")
+	if err == nil {
+		fileServer := http.FileServer(http.FS(staticFS))
+		s.mux.Handle("/", fileServer)
+	}
+}
+
+func writeJSON(w http.ResponseWriter, code int, v any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(code)
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+func readJSON(r *http.Request, v any) error {
+	defer r.Body.Close()
+	dec := json.NewDecoder(r.Body)
+	return dec.Decode(v)
+}
+
+func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, 405, map[string]any{"error": "method not allowed"})
+		return
+	}
+	st := s.store.Settings()
+	mqtt := s.devices.Bemfa().Status()
+	writeJSON(w, 200, map[string]any{
+		"bemfaConnected": mqtt.Connected,
+		"bemfaUIDSet":    strings.TrimSpace(st.BemfaUID) != "",
+		"listen":         st.Listen,
+		"clients":        len(s.hub.List()),
+		"devices":        len(s.store.ListDevices()),
+		"mqtt":           mqtt,
+	})
+}
+
+func (s *Server) handleMQTT(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, 405, map[string]any{"error": "method not allowed"})
+		return
+	}
+	writeJSON(w, 200, s.devices.Bemfa().Status())
+}
+
+func (s *Server) handleMQTTLogs(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		limit := 100
+		if v := r.URL.Query().Get("limit"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				limit = n
+			}
+		}
+		writeJSON(w, 200, map[string]any{
+			"list":   s.devices.Bemfa().Logs(limit),
+			"status": s.devices.Bemfa().Status(),
+		})
+	case http.MethodDelete:
+		s.devices.Bemfa().ClearLogs()
+		writeJSON(w, 200, map[string]any{"ok": true})
+	default:
+		writeJSON(w, 405, map[string]any{"error": "method not allowed"})
+	}
+}
+
+func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		st := s.store.Settings()
+		writeJSON(w, 200, st)
+	case http.MethodPut:
+		var body config.Settings
+		if err := readJSON(r, &body); err != nil {
+			writeJSON(w, 400, map[string]any{"error": err.Error()})
+			return
+		}
+		err := s.store.UpdateSettings(func(st *config.Settings) error {
+			st.Listen = body.Listen
+			st.BemfaUID = strings.TrimSpace(body.BemfaUID)
+			st.ClientToken = body.ClientToken
+			if body.WSPath != "" {
+				st.WSPath = body.WSPath
+			}
+			return nil
+		})
+		if err != nil {
+			writeJSON(w, 500, map[string]any{"error": err.Error()})
+			return
+		}
+		if err := s.devices.OnSettingsChanged(); err != nil {
+			writeJSON(w, 200, map[string]any{"settings": s.store.Settings(), "warning": err.Error()})
+			return
+		}
+		writeJSON(w, 200, map[string]any{"settings": s.store.Settings()})
+	default:
+		writeJSON(w, 405, map[string]any{"error": "method not allowed"})
+	}
+}
+
+func (s *Server) handleDevices(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		writeJSON(w, 200, map[string]any{"list": s.devices.List()})
+	case http.MethodPost:
+		var d config.Device
+		if err := readJSON(r, &d); err != nil {
+			writeJSON(w, 400, map[string]any{"error": err.Error()})
+			return
+		}
+		saved, err := s.devices.Create(d)
+		if err != nil {
+			writeJSON(w, 400, map[string]any{"error": err.Error(), "device": saved})
+			return
+		}
+		writeJSON(w, 200, map[string]any{"device": saved})
+	default:
+		writeJSON(w, 405, map[string]any{"error": "method not allowed"})
+	}
+}
+
+func (s *Server) handleDeviceSub(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/api/devices/")
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) == 0 || parts[0] == "" {
+		writeJSON(w, 404, map[string]any{"error": "not found"})
+		return
+	}
+	id := parts[0]
+	if id == "from-client" {
+		s.handleFromClient(w, r)
+		return
+	}
+	if len(parts) == 1 {
+		switch r.Method {
+		case http.MethodGet:
+			v, ok := s.devices.Get(id)
+			if !ok {
+				writeJSON(w, 404, map[string]any{"error": "not found"})
+				return
+			}
+			writeJSON(w, 200, v)
+		case http.MethodPut:
+			var d config.Device
+			if err := readJSON(r, &d); err != nil {
+				writeJSON(w, 400, map[string]any{"error": err.Error()})
+				return
+			}
+			saved, err := s.devices.Update(id, d)
+			if err != nil {
+				writeJSON(w, 400, map[string]any{"error": err.Error(), "device": saved})
+				return
+			}
+			writeJSON(w, 200, map[string]any{"device": saved})
+		case http.MethodDelete:
+			if err := s.devices.Delete(id); err != nil {
+				writeJSON(w, 400, map[string]any{"error": err.Error()})
+				return
+			}
+			writeJSON(w, 200, map[string]any{"ok": true})
+		default:
+			writeJSON(w, 405, map[string]any{"error": "method not allowed"})
+		}
+		return
+	}
+	action := parts[1]
+	switch action {
+	case "wake":
+		if r.Method != http.MethodPost {
+			writeJSON(w, 405, map[string]any{"error": "method not allowed"})
+			return
+		}
+		if err := s.devices.Wake(id); err != nil {
+			writeJSON(w, 400, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, 200, map[string]any{"ok": true})
+	case "shutdown":
+		if r.Method != http.MethodPost {
+			writeJSON(w, 405, map[string]any{"error": "method not allowed"})
+			return
+		}
+		if err := s.devices.Shutdown(id); err != nil {
+			writeJSON(w, 400, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, 200, map[string]any{"ok": true})
+	default:
+		writeJSON(w, 404, map[string]any{"error": "not found"})
+	}
+}
+
+func (s *Server) handleClients(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, 405, map[string]any{"error": "method not allowed"})
+		return
+	}
+	writeJSON(w, 200, map[string]any{"list": s.hub.List()})
+}
+
+func (s *Server) handleDiscover(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, 405, map[string]any{"error": "method not allowed"})
+		return
+	}
+	peers := []mdns.Peer{}
+	if s.browser != nil {
+		peers = s.browser.List()
+	}
+	writeJSON(w, 200, map[string]any{
+		"clients": s.hub.List(),
+		"mdns":    peers,
+	})
+}
+
+func (s *Server) handleFromClient(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, 405, map[string]any{"error": "method not allowed"})
+		return
+	}
+	var body struct {
+		ClientKey string `json:"clientKey"`
+		MAC       string `json:"mac"`
+		Name      string `json:"name"`
+	}
+	if err := readJSON(r, &body); err != nil {
+		writeJSON(w, 400, map[string]any{"error": err.Error()})
+		return
+	}
+	d, err := s.devices.FromClient(body.ClientKey, body.MAC, body.Name)
+	if err != nil {
+		writeJSON(w, 400, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, 200, map[string]any{"device": d})
+}

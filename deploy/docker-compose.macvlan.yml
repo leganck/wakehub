@@ -1,0 +1,36 @@
+# WOL 服务端 — macvlan 示例（Linux 生产，二层直达局域网发 Magic Packet）
+#
+# 在同时包含 wol 与 bemfa-go 的父目录执行，或：
+#   cd wol && docker compose -f deploy/docker-compose.macvlan.yml up -d --build
+#
+# 环境变量（可复制 .env.example 为 .env）：
+#   WOL_PARENT_IFACE  宿主机网卡，如 eth0 / enp3s0
+#   WOL_SUBNET        局域网网段
+#   WOL_GATEWAY       网关
+#   WOL_IP            容器固定 IP（勿与现有主机冲突）
+
+services:
+  wol-server:
+    build:
+      context: ../..
+      dockerfile: wol/deploy/Dockerfile.context
+    image: wol-server:local
+    container_name: wol-server
+    restart: unless-stopped
+    volumes:
+      - ../data:/app/data
+    environment:
+      - TZ=${TZ:-Asia/Shanghai}
+    networks:
+      wol_macvlan:
+        ipv4_address: ${WOL_IP:-192.168.1.50}
+
+networks:
+  wol_macvlan:
+    driver: macvlan
+    driver_opts:
+      parent: ${WOL_PARENT_IFACE:-eth0}
+    ipam:
+      config:
+        - subnet: ${WOL_SUBNET:-192.168.1.0/24}
+          gateway: ${WOL_GATEWAY:-192.168.1.1}

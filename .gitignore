@@ -1,0 +1,19 @@
+# wol
+/data/
+*.exe
+*.test
+/bin/
+/_ref_bemfa_wol/
+/_ref_bemfa_wol_repo/
+.idea/
+.vscode/
+*.log
+.gocache/
+.env
+
+# GoReleaser
+/dist/
+
+# OS
+.DS_Store
+Thumbs.db
