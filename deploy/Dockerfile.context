@@ -1,13 +1,18 @@
 # syntax=docker/dockerfile:1
-# Build from monorepo parent context: docker build -f wol/deploy/Dockerfile.context -t wakehub-server .   # run from parent of wol/
+# Build from monorepo parent context:
+#   docker build -f wol/deploy/Dockerfile.context -t wakehub-server .
+# (run from parent of wol/)
+# Falls back to published github.com/leganck/bemfa-go when sibling is absent.
 FROM golang:1.22-alpine AS build
 WORKDIR /src
 RUN apk add --no-cache git ca-certificates
 COPY wol /src/wakehub
 COPY bemfa-go /src/bemfa-go
 WORKDIR /src/wakehub
-RUN sed -i 's|=> ../bemfa-go|=> /src/bemfa-go|' go.mod \
- && go mod tidy \
+RUN if [ -d /src/bemfa-go ] && [ -f /src/bemfa-go/go.mod ]; then \
+      go mod edit -replace=github.com/leganck/bemfa-go=/src/bemfa-go; \
+    fi \
+ && go mod download \
  && CGO_ENABLED=0 go build -ldflags="-s -w" -o /out/wakehub-server ./cmd/server
 
 FROM alpine:3.20

@@ -1,0 +1,7 @@
+go 1.21
+
+// Local multi-module workspace example:
+//   copy go.work.example go.work
+// then develop against sibling ../bemfa-go without changing go.mod replace.
+use .
+use ../bemfa-go

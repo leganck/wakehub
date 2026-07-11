@@ -17,3 +17,8 @@
 # OS
 .DS_Store
 Thumbs.db
+
+# Local workspace (use go.work.example)
+go.work
+go.work.sum
+

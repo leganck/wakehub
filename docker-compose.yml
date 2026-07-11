@@ -1,10 +1,5 @@
 # WakeHub 服务端 — 桥接网络示例（开发 / 简易部署）
 #
-# 前置：父目录需同时包含本项目目录(wol/wakehub) 与 bemfa-go，例如：
-#   GolandProjects/
-#     bemfa-go/
-#     wol/ 或 wakehub/  ← 在本目录执行 compose
-#
 # 启动：
 #   docker compose up -d --build
 # 访问：
@@ -12,6 +7,7 @@
 #
 # 说明：
 # - 配置持久化在 ./data/config.json
+# - 默认从 Dockerfile 拉取已发布的 github.com/leganck/bemfa-go
 # - 桥接模式下 Magic Packet 广播可能无法直达局域网二层；
 #   生产唤醒建议用 deploy/docker-compose.macvlan.yml（Linux）
 #   或 network_mode: host（仅 Linux）
@@ -19,8 +15,8 @@
 services:
   wakehub-server:
     build:
-      context: ..
-      dockerfile: wol/deploy/Dockerfile.context
+      context: .
+      dockerfile: Dockerfile
     image: wakehub-server:local
     container_name: wakehub-server
     restart: unless-stopped

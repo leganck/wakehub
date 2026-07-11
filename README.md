@@ -8,9 +8,12 @@
 - `cmd/server`：Web 管理 / REST / 巴法 MQTT / 唤醒关机 / 客户端 WS / mDNS 浏览
 - `cmd/client`：连接服务端、上报网卡、执行关机、mDNS 广播、安装系统服务
 
-## 本地运行
+## 依赖
 
-需与 `bemfa-go` 源码并列（`../bemfa-go`，go.mod replace 已配置）：
+- 默认使用已发布模块：`github.com/leganck/bemfa-go v1.1.0`
+- 本地联调可选：复制 `go.work.example` 为 `go.work`，与 `../bemfa-go` 组成 workspace
+
+## 本地运行
 
 ```bash
 go run ./cmd/server -config data/config.json -listen :8080
@@ -36,37 +39,36 @@ bin\wakehub-client.exe install -server ws://192.168.1.50:8080/api/ws/client -key
 
 ## Docker Compose
 
-目录结构要求：
-
-```text
-GolandProjects/
-  bemfa-go/
-  wol/  # 或 wakehub/（目录名用于 Docker 构建 context）
-    docker-compose.yml
-    deploy/
-    data/
-```
-
 ### 1. 桥接示例（简易 / 开发）
 
-映射端口到宿主机，配置写在 `./data`：
+直接从项目根目录构建（使用已发布 bemfa-go）：
 
 ```bash
-cd wol
 cp .env.example .env   # 可选，改 WAKEHUB_PORT / TZ
 docker compose up -d --build
 ```
 
-访问 `http://127.0.0.1:8080`。
-
-等价文件：`deploy/docker-compose.yml`。
+访问 `http://127.0.0.1:8080`。配置写在 `./data`。
 
 > 桥接网络下 Magic Packet 广播往往到不了局域网二层。仅 Web/API/巴法调试可用；要可靠唤醒请用 macvlan 或 host 网络。
 
-### 2. macvlan 示例（Linux 生产唤醒）
+### 2. monorepo 父目录构建（可选本地 bemfa-go）
+
+若希望 Docker 构建时使用同级源码 `../bemfa-go`：
+
+```text
+GolandProjects/
+  bemfa-go/
+  wol/  # 或 wakehub/（deploy 文件中 dockerfile 路径写为 wol/...）
+```
 
 ```bash
-cd wol
+docker compose -f deploy/docker-compose.yml up -d --build
+```
+
+### 3. macvlan 示例（Linux 生产唤醒）
+
+```bash
 # 编辑 .env 或 export：
 # WAKEHUB_PARENT_IFACE=eth0
 # WAKEHUB_SUBNET=192.168.1.0/24
@@ -79,7 +81,7 @@ docker compose -f deploy/docker-compose.macvlan.yml up -d --build
 
 > Windows Docker Desktop 对 macvlan 支持有限，生产请用 Linux 宿主机。
 
-### 3. Linux host 网络（可选）
+### 4. Linux host 网络（可选）
 
 在 `docker-compose.yml` 中启用 `network_mode: host` 并去掉 `ports`，容器与宿主机共享协议栈，适合同机二层广播（端口直接占用宿主机 8080）。
 
@@ -105,8 +107,6 @@ docker compose -f deploy/docker-compose.macvlan.yml up -d --build
 
 ## 发布（GoReleaser / GitHub Actions）
 
-参考 `fn-qb-proxy` 配置：
-
 | 文件 | 说明 |
 |------|------|
 | `.goreleaser.yaml` | 构建 `wakehub-server` / `wakehub-client` 多平台产物，并推送 GHCR 镜像 |
@@ -114,20 +114,19 @@ docker compose -f deploy/docker-compose.macvlan.yml up -d --build
 | `.github/workflows/ci.yml` | PR/分支：`go vet` / `test` / `build` |
 | `Dockerfile.release` | GoReleaser 打包的运行镜像 |
 
-本地开发仍使用 `replace github.com/leganck/bemfa-go => ../bemfa-go`。  
-CI 会 `go get github.com/leganck/bemfa-go@latest` 并去掉 replace。
+模块依赖直接写入 `go.mod`（`github.com/leganck/bemfa-go v1.1.0`），CI 不再改写 `go.mod`，避免 GoReleaser dirty tree。
 
 ### 打标签发布
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.1.1
+git push origin v0.1.1
 ```
 
 产物：
 
 - GitHub Release：各平台 `wakehub-server` / `wakehub-client` 压缩包
-- 容器：`ghcr.io/leganck/wakehub:v0.1.0`（含 `latest` multi-arch manifest）
+- 容器：`ghcr.io/leganck/wakehub:v0.1.1`（含 `latest` multi-arch manifest）
 
 ### 使用发布镜像
 
