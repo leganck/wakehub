@@ -17,9 +17,9 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/leganck/wol/internal/config"
-	"github.com/leganck/wol/internal/mdns"
-	"github.com/leganck/wol/internal/service"
+	"github.com/leganck/wakehub/internal/config"
+	"github.com/leganck/wakehub/internal/mdns"
+	"github.com/leganck/wakehub/internal/service"
 )
 
 // Set by GoReleaser ldflags.
@@ -36,15 +36,15 @@ func main() {
 		case "uninstall":
 			os.Exit(runUninstall())
 		case "start":
-			os.Exit(service.Start("wol-client"))
+			os.Exit(service.Start("wakehub-client"))
 		case "stop":
-			os.Exit(service.Stop("wol-client"))
+			os.Exit(service.Stop("wakehub-client"))
 		case "status":
-			os.Exit(service.Status("wol-client"))
+			os.Exit(service.Status("wakehub-client"))
 		case "run":
 			os.Args = append([]string{os.Args[0]}, os.Args[2:]...)
 		case "version", "-version", "--version":
-			fmt.Printf("wol-client %s (built %s)\n", version, buildTime)
+			fmt.Printf("wakehub-client %s (built %s)\n", version, buildTime)
 			return
 		}
 	}
@@ -60,7 +60,7 @@ func runClient() {
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 	if *showVersion {
-		fmt.Printf("wol-client %s (built %s)\n", version, buildTime)
+		fmt.Printf("wakehub-client %s (built %s)\n", version, buildTime)
 		return
 	}
 
@@ -74,12 +74,12 @@ func runClient() {
 	var pub *mdns.Publisher
 	if *enableMDNS {
 		mac := mdns.PrimaryMAC()
-		p, err := mdns.Publish("wol-"+sanitizeInstance(clientKey), clientKey, hostname, mac, 9)
+		p, err := mdns.Publish("wakehub-"+sanitizeInstance(clientKey), clientKey, hostname, mac, 9)
 		if err != nil {
 			log.Printf("mdns publish failed: %v", err)
 		} else {
 			pub = p
-			log.Printf("mdns published as wol-%s", clientKey)
+			log.Printf("mdns published as wakehub-%s", clientKey)
 		}
 	}
 	if pub != nil {
@@ -280,11 +280,11 @@ func runInstall(args []string) int {
 		bin = fmt.Sprintf("%s run -server %s -token %s -key %s -shutdown-cmd %s -mdns=%v",
 			exe, shellQuote(*server), shellQuote(*token), shellQuote(*key), shellQuote(*shutdownCmd), *mdnsFlag)
 	}
-	if err := service.Install("wol-client", "WOL Client", bin); err != nil {
+	if err := service.Install("wakehub-client", "WakeHub Client", bin); err != nil {
 		log.Println(err)
 		return 1
 	}
-	log.Println("service installed: wol-client")
+	log.Println("service installed: wakehub-client")
 	return 0
 }
 
@@ -296,7 +296,7 @@ func shellQuote(s string) string {
 }
 
 func runUninstall() int {
-	if err := service.Uninstall("wol-client"); err != nil {
+	if err := service.Uninstall("wakehub-client"); err != nil {
 		log.Println(err)
 		return 1
 	}

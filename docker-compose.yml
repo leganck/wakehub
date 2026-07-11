@@ -1,9 +1,9 @@
-# WOL 服务端 — 桥接网络示例（开发 / 简易部署）
+# WakeHub 服务端 — 桥接网络示例（开发 / 简易部署）
 #
-# 前置：父目录需同时包含 wol 与 bemfa-go，例如：
+# 前置：父目录需同时包含本项目目录(wol/wakehub) 与 bemfa-go，例如：
 #   GolandProjects/
 #     bemfa-go/
-#     wol/          ← 在本目录执行 compose
+#     wol/ 或 wakehub/  ← 在本目录执行 compose
 #
 # 启动：
 #   docker compose up -d --build
@@ -17,15 +17,15 @@
 #   或 network_mode: host（仅 Linux）
 
 services:
-  wol-server:
+  wakehub-server:
     build:
       context: ..
       dockerfile: wol/deploy/Dockerfile.context
-    image: wol-server:local
-    container_name: wol-server
+    image: wakehub-server:local
+    container_name: wakehub-server
     restart: unless-stopped
     ports:
-      - "${WOL_PORT:-8080}:8080"
+      - "${WAKEHUB_PORT:-8080}:8080"
     volumes:
       - ./data:/app/data
     environment:

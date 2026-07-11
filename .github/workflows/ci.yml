@@ -31,5 +31,5 @@ jobs:
 
       - name: Build
         run: |
-          go build -o /tmp/wol-server ./cmd/server
-          go build -o /tmp/wol-client ./cmd/client
+          go build -o /tmp/wakehub-server ./cmd/server
+          go build -o /tmp/wakehub-client ./cmd/client

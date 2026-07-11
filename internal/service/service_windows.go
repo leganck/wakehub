@@ -15,7 +15,7 @@ func Install(name, display, binCmd string) error {
 	if err != nil {
 		return fmt.Errorf("%v: %s", err, string(out))
 	}
-	_, _ = exec.Command("sc.exe", "description", name, "WOL shutdown client for wol-server").CombinedOutput()
+	_, _ = exec.Command("sc.exe", "description", name, "WakeHub shutdown client for wakehub-server").CombinedOutput()
 	_, _ = exec.Command("sc.exe", "start", name).CombinedOutput()
 	return nil
 }

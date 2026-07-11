@@ -16,7 +16,7 @@ import (
 	deviceapi "github.com/leganck/bemfa-go/api/device"
 	bemfadevice "github.com/leganck/bemfa-go/device"
 	"github.com/leganck/bemfa-go/voice"
-	"github.com/leganck/wol/internal/config"
+	"github.com/leganck/wakehub/internal/config"
 )
 
 const maxLogEntries = 200
@@ -266,7 +266,7 @@ func (m *Manager) EnsureDevice(d *config.Device) error {
 	}
 	name = sanitizeName(name)
 	if name == "" {
-		name = "WOL"
+		name = "WakeHub"
 	}
 	if err := createTopicIdempotent(m, m.uid, topic, name); err != nil {
 		m.setLastErrorLocked(err)
@@ -380,7 +380,7 @@ func createTopicIdempotent(m *Manager, uid, topic, name string) error {
 		return err
 	}
 	if name == "" {
-		name = "WOL"
+		name = "WakeHub"
 	}
 
 	attempts := []struct {

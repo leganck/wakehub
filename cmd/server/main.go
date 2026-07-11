@@ -13,11 +13,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/leganck/wol/internal/clientlink"
-	"github.com/leganck/wol/internal/config"
-	"github.com/leganck/wol/internal/device"
-	"github.com/leganck/wol/internal/mdns"
-	webserver "github.com/leganck/wol/internal/web"
+	"github.com/leganck/wakehub/internal/clientlink"
+	"github.com/leganck/wakehub/internal/config"
+	"github.com/leganck/wakehub/internal/device"
+	"github.com/leganck/wakehub/internal/mdns"
+	webserver "github.com/leganck/wakehub/internal/web"
 )
 
 // Set by GoReleaser ldflags.
@@ -32,7 +32,7 @@ func main() {
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 	if *showVersion {
-		fmt.Printf("wol-server %s (built %s)\n", version, buildTime)
+		fmt.Printf("wakehub-server %s (built %s)\n", version, buildTime)
 		return
 	}
 
@@ -122,7 +122,7 @@ func printStartupSummary(store *config.Store, svc *device.Service, hub *clientli
 
 	var b strings.Builder
 	b.WriteString("\n")
-	b.WriteString("========== WOL Server ==========\n")
+	b.WriteString("========== WakeHub Server ==========\n")
 	fmt.Fprintf(&b, "  Version     : %s (%s)\n", version, buildTime)
 	fmt.Fprintf(&b, "  Listen      : %s\n", addr)
 	fmt.Fprintf(&b, "  Port        : %s\n", port)

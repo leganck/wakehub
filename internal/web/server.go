@@ -7,11 +7,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/leganck/wol/internal/clientlink"
-	"github.com/leganck/wol/internal/config"
-	"github.com/leganck/wol/internal/device"
-	"github.com/leganck/wol/internal/mdns"
-	"github.com/leganck/wol/web"
+	"github.com/leganck/wakehub/internal/clientlink"
+	"github.com/leganck/wakehub/internal/config"
+	"github.com/leganck/wakehub/internal/device"
+	"github.com/leganck/wakehub/internal/mdns"
+	"github.com/leganck/wakehub/web"
 )
 
 type Server struct {

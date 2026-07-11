@@ -5,10 +5,10 @@ import (
 	"log"
 	"strings"
 
-	"github.com/leganck/wol/internal/bemfa"
-	"github.com/leganck/wol/internal/clientlink"
-	"github.com/leganck/wol/internal/config"
-	"github.com/leganck/wol/internal/wol"
+	"github.com/leganck/wakehub/internal/bemfa"
+	"github.com/leganck/wakehub/internal/clientlink"
+	"github.com/leganck/wakehub/internal/config"
+	"github.com/leganck/wakehub/internal/wol"
 )
 
 type View struct {

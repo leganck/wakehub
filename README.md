@@ -1,10 +1,11 @@
-# WOL 精简版
+# WakeHub
 
-巴法 MQTT + Magic Packet（默认 UDP/9）+ 本机关机客户端。服务端适合 **Linux + macvlan** 部署，在局域网二层直接发唤醒包。
+局域网电源中枢：巴法 MQTT + Magic Packet（默认 UDP/9）+ 本机关机客户端。
+服务端适合 **Linux + macvlan** 部署，在局域网二层直接发唤醒包。
 
 ## 组件
 
-- `cmd/server`：Web 管理 / REST / 巴法 / WOL / 客户端 WS / mDNS 浏览
+- `cmd/server`：Web 管理 / REST / 巴法 MQTT / 唤醒关机 / 客户端 WS / mDNS 浏览
 - `cmd/client`：连接服务端、上报网卡、执行关机、mDNS 广播、安装系统服务
 
 ## 本地运行
@@ -27,10 +28,10 @@ go run ./cmd/client run -server ws://<server-ip>:8080/api/ws/client -key my-pc
 
 ```bash
 # Windows（管理员）
-bin\wol-client.exe install -server ws://192.168.1.50:8080/api/ws/client -key my-pc
+bin\wakehub-client.exe install -server ws://192.168.1.50:8080/api/ws/client -key my-pc
 
 # Linux（root）
-./wol-client install -server ws://192.168.1.50:8080/api/ws/client -key my-pc
+./wakehub-client install -server ws://192.168.1.50:8080/api/ws/client -key my-pc
 ```
 
 ## Docker Compose
@@ -40,7 +41,7 @@ bin\wol-client.exe install -server ws://192.168.1.50:8080/api/ws/client -key my-
 ```text
 GolandProjects/
   bemfa-go/
-  wol/                 # 本仓库
+  wol/  # 或 wakehub/（目录名用于 Docker 构建 context）
     docker-compose.yml
     deploy/
     data/
@@ -52,7 +53,7 @@ GolandProjects/
 
 ```bash
 cd wol
-cp .env.example .env   # 可选，改 WOL_PORT / TZ
+cp .env.example .env   # 可选，改 WAKEHUB_PORT / TZ
 docker compose up -d --build
 ```
 
@@ -67,14 +68,14 @@ docker compose up -d --build
 ```bash
 cd wol
 # 编辑 .env 或 export：
-# WOL_PARENT_IFACE=eth0
-# WOL_SUBNET=192.168.1.0/24
-# WOL_GATEWAY=192.168.1.1
-# WOL_IP=192.168.1.50
+# WAKEHUB_PARENT_IFACE=eth0
+# WAKEHUB_SUBNET=192.168.1.0/24
+# WAKEHUB_GATEWAY=192.168.1.1
+# WAKEHUB_IP=192.168.1.50
 docker compose -f deploy/docker-compose.macvlan.yml up -d --build
 ```
 
-访问 `http://192.168.1.50:8080`。配置持久化在 `wol/data`。
+访问 `http://192.168.1.50:8080`。配置持久化在 `./data`。
 
 > Windows Docker Desktop 对 macvlan 支持有限，生产请用 Linux 宿主机。
 
@@ -108,7 +109,7 @@ docker compose -f deploy/docker-compose.macvlan.yml up -d --build
 
 | 文件 | 说明 |
 |------|------|
-| `.goreleaser.yaml` | 构建 `wol-server` / `wol-client` 多平台产物，并推送 GHCR 镜像 |
+| `.goreleaser.yaml` | 构建 `wakehub-server` / `wakehub-client` 多平台产物，并推送 GHCR 镜像 |
 | `.github/workflows/release.yml` | `master`/`main` 推送做 snapshot 构建；`v*` 标签正式发布 |
 | `.github/workflows/ci.yml` | PR/分支：`go vet` / `test` / `build` |
 | `Dockerfile.release` | GoReleaser 打包的运行镜像 |
@@ -125,14 +126,14 @@ git push origin v0.1.0
 
 产物：
 
-- GitHub Release：各平台 `wol-server` / `wol-client` 压缩包
-- 容器：`ghcr.io/leganck/wol:v0.1.0`（含 `latest` multi-arch manifest）
+- GitHub Release：各平台 `wakehub-server` / `wakehub-client` 压缩包
+- 容器：`ghcr.io/leganck/wakehub:v0.1.0`（含 `latest` multi-arch manifest）
 
 ### 使用发布镜像
 
 ```bash
-docker run -d --name wol-server \
+docker run -d --name wakehub-server \
   -p 8080:8080 \
   -v "$PWD/data:/app/data" \
-  ghcr.io/leganck/wol:latest
+  ghcr.io/leganck/wakehub:latest
 ```

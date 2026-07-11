@@ -1,4 +1,4 @@
-module github.com/leganck/wol
+module github.com/leganck/wakehub
 
 go 1.21
 

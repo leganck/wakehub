@@ -8,9 +8,9 @@ before:
     - go mod tidy
 
 builds:
-  - id: wol-server
+  - id: wakehub-server
     main: ./cmd/server
-    binary: wol-server
+    binary: wakehub-server
     env:
       - CGO_ENABLED=0
     goos:
@@ -26,9 +26,9 @@ builds:
     ldflags:
       - -s -w -X main.version={{.Version}} -X main.buildTime={{.Date}}
 
-  - id: wol-client
+  - id: wakehub-client
     main: ./cmd/client
-    binary: wol-client
+    binary: wakehub-client
     env:
       - CGO_ENABLED=0
     goos:
@@ -45,9 +45,9 @@ builds:
       - -s -w -X main.version={{.Version}} -X main.buildTime={{.Date}}
 
 archives:
-  - id: wol-server
+  - id: wakehub-server
     ids:
-      - wol-server
+      - wakehub-server
     formats: [tar.gz]
     name_template: >-
       {{ .Binary }}_
@@ -64,9 +64,9 @@ archives:
       - README.md
       - .env.example
 
-  - id: wol-client
+  - id: wakehub-client
     ids:
-      - wol-client
+      - wakehub-client
     formats: [tar.gz]
     name_template: >-
       {{ .Binary }}_
@@ -83,59 +83,59 @@ archives:
       - README.md
 
 dockers:
-  - id: wol-server-amd64
+  - id: wakehub-server-amd64
     ids:
-      - wol-server
+      - wakehub-server
     goos: linux
     goarch: amd64
     image_templates:
-      - "ghcr.io/leganck/wol:latest-amd64"
-      - "ghcr.io/leganck/wol:{{ .Tag }}-amd64"
-      - "ghcr.io/leganck/wol:v{{ .Major }}.{{ .Minor }}-amd64"
+      - "ghcr.io/leganck/wakehub:latest-amd64"
+      - "ghcr.io/leganck/wakehub:{{ .Tag }}-amd64"
+      - "ghcr.io/leganck/wakehub:v{{ .Major }}.{{ .Minor }}-amd64"
     use: buildx
     dockerfile: Dockerfile.release
     build_flag_templates:
       - "--platform=linux/amd64"
-      - "--label=org.opencontainers.image.title=wol"
-      - "--label=org.opencontainers.image.description=WOL server with Bemfa MQTT"
-      - "--label=org.opencontainers.image.source=https://github.com/leganck/wol"
+      - "--label=org.opencontainers.image.title=WakeHub"
+      - "--label=org.opencontainers.image.description=WakeHub server with Bemfa MQTT"
+      - "--label=org.opencontainers.image.source=https://github.com/leganck/wakehub"
       - "--label=org.opencontainers.image.version={{ .Version }}"
       - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
 
-  - id: wol-server-arm64
+  - id: wakehub-server-arm64
     ids:
-      - wol-server
+      - wakehub-server
     goos: linux
     goarch: arm64
     image_templates:
-      - "ghcr.io/leganck/wol:latest-arm64"
-      - "ghcr.io/leganck/wol:{{ .Tag }}-arm64"
-      - "ghcr.io/leganck/wol:v{{ .Major }}.{{ .Minor }}-arm64"
+      - "ghcr.io/leganck/wakehub:latest-arm64"
+      - "ghcr.io/leganck/wakehub:{{ .Tag }}-arm64"
+      - "ghcr.io/leganck/wakehub:v{{ .Major }}.{{ .Minor }}-arm64"
     use: buildx
     dockerfile: Dockerfile.release
     build_flag_templates:
       - "--platform=linux/arm64"
-      - "--label=org.opencontainers.image.title=wol"
-      - "--label=org.opencontainers.image.description=WOL server with Bemfa MQTT"
-      - "--label=org.opencontainers.image.source=https://github.com/leganck/wol"
+      - "--label=org.opencontainers.image.title=WakeHub"
+      - "--label=org.opencontainers.image.description=WakeHub server with Bemfa MQTT"
+      - "--label=org.opencontainers.image.source=https://github.com/leganck/wakehub"
       - "--label=org.opencontainers.image.version={{ .Version }}"
       - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
 
 docker_manifests:
-  - name_template: "ghcr.io/leganck/wol:latest"
+  - name_template: "ghcr.io/leganck/wakehub:latest"
     image_templates:
-      - "ghcr.io/leganck/wol:latest-amd64"
-      - "ghcr.io/leganck/wol:latest-arm64"
+      - "ghcr.io/leganck/wakehub:latest-amd64"
+      - "ghcr.io/leganck/wakehub:latest-arm64"
 
-  - name_template: "ghcr.io/leganck/wol:{{ .Tag }}"
+  - name_template: "ghcr.io/leganck/wakehub:{{ .Tag }}"
     image_templates:
-      - "ghcr.io/leganck/wol:{{ .Tag }}-amd64"
-      - "ghcr.io/leganck/wol:{{ .Tag }}-arm64"
+      - "ghcr.io/leganck/wakehub:{{ .Tag }}-amd64"
+      - "ghcr.io/leganck/wakehub:{{ .Tag }}-arm64"
 
-  - name_template: "ghcr.io/leganck/wol:v{{ .Major }}.{{ .Minor }}"
+  - name_template: "ghcr.io/leganck/wakehub:v{{ .Major }}.{{ .Minor }}"
     image_templates:
-      - "ghcr.io/leganck/wol:v{{ .Major }}.{{ .Minor }}-amd64"
-      - "ghcr.io/leganck/wol:v{{ .Major }}.{{ .Minor }}-arm64"
+      - "ghcr.io/leganck/wakehub:v{{ .Major }}.{{ .Minor }}-amd64"
+      - "ghcr.io/leganck/wakehub:v{{ .Major }}.{{ .Minor }}-arm64"
 
 changelog:
   sort: asc

@@ -10,7 +10,7 @@ import (
 	"github.com/grandcat/zeroconf"
 )
 
-const ServiceType = "_wolclient._tcp"
+const ServiceType = "_wakehub._tcp"
 
 type Peer struct {
 	Instance string            `json:"instance"`
@@ -133,7 +133,7 @@ type Publisher struct {
 
 func Publish(instance, key, hostname, mac string, port int) (*Publisher, error) {
 	if instance == "" {
-		instance = fmt.Sprintf("wol-%s", key)
+		instance = fmt.Sprintf("wakehub-%s", key)
 	}
 	if port <= 0 {
 		port = 9
