@@ -34,8 +34,40 @@ type Device struct {
 	BemfaTopic     string `json:"bemfaTopic,omitempty"`
 	BemfaName      string `json:"bemfaName,omitempty"`
 	BoundClientKey string `json:"boundClientKey,omitempty"`
-	CreatedAt      int64  `json:"createdAt,omitempty"`
-	UpdatedAt      int64  `json:"updatedAt,omitempty"`
+	// PreferredNIC is the interface name hint when picking MAC from multi-NIC clients.
+	PreferredNIC string `json:"preferredNic,omitempty"`
+	// Online probe (tcp/icmp). Host empty => use first IPv4 of bound client or derived.
+	ProbeMethod   string `json:"probeMethod,omitempty"` // off|tcp|icmp
+	ProbeHost     string `json:"probeHost,omitempty"`
+	ProbePort     int    `json:"probePort,omitempty"` // tcp port, default 3389
+	ProbeInterval int    `json:"probeInterval,omitempty"` // seconds, default 60
+	CreatedAt     int64  `json:"createdAt,omitempty"`
+	UpdatedAt     int64  `json:"updatedAt,omitempty"`
+}
+
+// Group is a named set of devices for batch wake/shutdown.
+type Group struct {
+	ID        string   `json:"id"`
+	Name      string   `json:"name"`
+	DeviceIDs []string `json:"deviceIds"`
+	CreatedAt int64    `json:"createdAt,omitempty"`
+	UpdatedAt int64    `json:"updatedAt,omitempty"`
+}
+
+// Schedule runs wake/shutdown at a local time on selected weekdays.
+type Schedule struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Enabled    bool   `json:"enabled"`
+	Action     string `json:"action"` // wake|shutdown
+	DeviceID   string `json:"deviceId,omitempty"`
+	GroupID    string `json:"groupId,omitempty"`
+	Hour       int    `json:"hour"`   // 0-23
+	Minute     int    `json:"minute"` // 0-59
+	Weekdays   []int  `json:"weekdays,omitempty"` // 0=Sun .. 6=Sat; empty = every day
+	LastRunDay string `json:"lastRunDay,omitempty"` // YYYY-MM-DD
+	CreatedAt  int64  `json:"createdAt,omitempty"`
+	UpdatedAt  int64  `json:"updatedAt,omitempty"`
 }
 
 // WebGlobalMode values when globals are managed outside plain config.json (e.g. OpenWrt LuCI).
@@ -56,15 +88,23 @@ type Settings struct {
 	GlobalManagedByLuci bool `json:"globalManagedByLuci"`
 	// WebGlobalMode is "readonly" (default when managed) or "writeback".
 	WebGlobalMode string `json:"webGlobalMode,omitempty"`
+	// Notify (webhook)
+	NotifyWebhook        string `json:"notifyWebhook,omitempty"`
+	NotifyOnWake         bool   `json:"notifyOnWake"`
+	NotifyOnShutdown     bool   `json:"notifyOnShutdown"`
+	NotifyOnProbeChange  bool   `json:"notifyOnProbeChange"`
+	NotifyOnSchedule     bool   `json:"notifyOnSchedule"`
 }
 
 // CurrentConfigVersion is written into config files after migrations.
 const CurrentConfigVersion = 1
 
 type File struct {
-	Version  int      `json:"version,omitempty"`
-	Settings Settings `json:"settings"`
-	Devices  []Device `json:"devices"`
+	Version   int        `json:"version,omitempty"`
+	Settings  Settings   `json:"settings"`
+	Devices   []Device   `json:"devices"`
+	Groups    []Group    `json:"groups,omitempty"`
+	Schedules []Schedule `json:"schedules,omitempty"`
 }
 
 type Store struct {
@@ -83,7 +123,9 @@ func DefaultFile() File {
 			BasicAuthUser:     DefaultAuthUser,
 			BasicAuthPassword: DefaultAuthPassword,
 		},
-		Devices: []Device{},
+		Devices:   []Device{},
+		Groups:    []Group{},
+		Schedules: []Schedule{},
 	}
 }
 
@@ -177,13 +219,49 @@ func (s *Store) normalize() {
 	if s.data.Devices == nil {
 		s.data.Devices = []Device{}
 	}
+	if s.data.Groups == nil {
+		s.data.Groups = []Group{}
+	}
+	if s.data.Schedules == nil {
+		s.data.Schedules = []Schedule{}
+	}
 	for i := range s.data.Devices {
-		if s.data.Devices[i].Port <= 0 || s.data.Devices[i].Port > 65535 {
-			s.data.Devices[i].Port = 9
-		}
-		if s.data.Devices[i].Repeat <= 0 || s.data.Devices[i].Repeat > 20 {
-			s.data.Devices[i].Repeat = 3
-		}
+		normalizeDeviceFields(&s.data.Devices[i])
+	}
+	for i := range s.data.Schedules {
+		normalizeScheduleFields(&s.data.Schedules[i])
+	}
+}
+
+func normalizeDeviceFields(d *Device) {
+	if d.Port <= 0 || d.Port > 65535 {
+		d.Port = 9
+	}
+	if d.Repeat <= 0 || d.Repeat > 20 {
+		d.Repeat = 3
+	}
+	d.ProbeMethod = strings.ToLower(strings.TrimSpace(d.ProbeMethod))
+	if d.ProbeMethod == "" {
+		d.ProbeMethod = "off"
+	}
+	if d.ProbeMethod == "tcp" && (d.ProbePort <= 0 || d.ProbePort > 65535) {
+		d.ProbePort = 3389
+	}
+	if d.ProbeInterval <= 0 {
+		d.ProbeInterval = 60
+	}
+	if d.ProbeInterval < 15 {
+		d.ProbeInterval = 15
+	}
+}
+
+func normalizeScheduleFields(sc *Schedule) {
+	sc.Action = strings.ToLower(strings.TrimSpace(sc.Action))
+	if sc.Hour < 0 || sc.Hour > 23 {
+		sc.Hour = 0
+	}
+	if sc.Minute < 0 || sc.Minute > 59 {
+		sc.Minute = 0
 	}
 }
 
@@ -194,6 +272,14 @@ func (s *Store) Snapshot() File {
 	defer s.mu.RUnlock()
 	out := s.data
 	out.Devices = append([]Device(nil), s.data.Devices...)
+	out.Groups = append([]Group(nil), s.data.Groups...)
+	out.Schedules = append([]Schedule(nil), s.data.Schedules...)
+	for i := range out.Groups {
+		out.Groups[i].DeviceIDs = append([]string(nil), s.data.Groups[i].DeviceIDs...)
+	}
+	for i := range out.Schedules {
+		out.Schedules[i].Weekdays = append([]int(nil), s.data.Schedules[i].Weekdays...)
+	}
 	return out
 }
 
@@ -252,6 +338,11 @@ func (st Settings) Public() map[string]any {
 		"globalManagedByLuci":    st.GlobalManagedByLuci,
 		"webGlobalMode":          mode,
 		"globalSettingsWritable": st.GlobalsWritable(),
+		"notifyWebhook":          st.NotifyWebhook,
+		"notifyOnWake":           st.NotifyOnWake,
+		"notifyOnShutdown":       st.NotifyOnShutdown,
+		"notifyOnProbeChange":    st.NotifyOnProbeChange,
+		"notifyOnSchedule":       st.NotifyOnSchedule,
 	}
 }
 
@@ -322,6 +413,7 @@ func (s *Store) UpsertDevice(d Device) (Device, error) {
 	if d.MAC == "" {
 		return Device{}, errors.New("mac is required")
 	}
+	normalizeDeviceFields(&d)
 	idx := -1
 	for i := range s.data.Devices {
 		if s.data.Devices[i].ID == d.ID && d.ID != "" {
@@ -366,6 +458,192 @@ func (s *Store) DeleteDevice(id string) error {
 		return fmt.Errorf("device %s not found", id)
 	}
 	s.data.Devices = out
+	// drop from groups
+	for i := range s.data.Groups {
+		ids := s.data.Groups[i].DeviceIDs[:0]
+		for _, did := range s.data.Groups[i].DeviceIDs {
+			if did != id {
+				ids = append(ids, did)
+			}
+		}
+		s.data.Groups[i].DeviceIDs = ids
+	}
+	return s.saveLocked()
+}
+
+func (s *Store) ListGroups() []Group {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]Group, len(s.data.Groups))
+	for i, g := range s.data.Groups {
+		out[i] = g
+		out[i].DeviceIDs = append([]string(nil), g.DeviceIDs...)
+	}
+	return out
+}
+
+func (s *Store) GetGroup(id string) (Group, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, g := range s.data.Groups {
+		if g.ID == id {
+			g.DeviceIDs = append([]string(nil), g.DeviceIDs...)
+			return g, true
+		}
+	}
+	return Group{}, false
+}
+
+func (s *Store) UpsertGroup(g Group) (Group, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	g.Name = strings.TrimSpace(g.Name)
+	if g.Name == "" {
+		return Group{}, errors.New("name is required")
+	}
+	if g.DeviceIDs == nil {
+		g.DeviceIDs = []string{}
+	}
+	now := time.Now().Unix()
+	idx := -1
+	for i := range s.data.Groups {
+		if s.data.Groups[i].ID == g.ID && g.ID != "" {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		if g.ID == "" {
+			g.ID = randomID(10)
+		}
+		g.CreatedAt = now
+		g.UpdatedAt = now
+		s.data.Groups = append(s.data.Groups, g)
+	} else {
+		g.CreatedAt = s.data.Groups[idx].CreatedAt
+		g.UpdatedAt = now
+		s.data.Groups[idx] = g
+	}
+	if err := s.saveLocked(); err != nil {
+		return Group{}, err
+	}
+	return g, nil
+}
+
+func (s *Store) DeleteGroup(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := s.data.Groups[:0]
+	found := false
+	for _, g := range s.data.Groups {
+		if g.ID == id {
+			found = true
+			continue
+		}
+		out = append(out, g)
+	}
+	if !found {
+		return fmt.Errorf("group %s not found", id)
+	}
+	s.data.Groups = out
+	return s.saveLocked()
+}
+
+func (s *Store) ListSchedules() []Schedule {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]Schedule, len(s.data.Schedules))
+	for i, sc := range s.data.Schedules {
+		out[i] = sc
+		out[i].Weekdays = append([]int(nil), sc.Weekdays...)
+	}
+	return out
+}
+
+func (s *Store) GetSchedule(id string) (Schedule, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, sc := range s.data.Schedules {
+		if sc.ID == id {
+			sc.Weekdays = append([]int(nil), sc.Weekdays...)
+			return sc, true
+		}
+	}
+	return Schedule{}, false
+}
+
+func (s *Store) UpsertSchedule(sc Schedule) (Schedule, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sc.Name = strings.TrimSpace(sc.Name)
+	if sc.Name == "" {
+		return Schedule{}, errors.New("name is required")
+	}
+	sc.Action = strings.ToLower(strings.TrimSpace(sc.Action))
+	if sc.Action != "wake" && sc.Action != "shutdown" {
+		return Schedule{}, errors.New("action must be wake or shutdown")
+	}
+	if sc.DeviceID == "" && sc.GroupID == "" {
+		return Schedule{}, errors.New("deviceId or groupId required")
+	}
+	normalizeScheduleFields(&sc)
+	now := time.Now().Unix()
+	idx := -1
+	for i := range s.data.Schedules {
+		if s.data.Schedules[i].ID == sc.ID && sc.ID != "" {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		if sc.ID == "" {
+			sc.ID = randomID(10)
+		}
+		sc.CreatedAt = now
+		sc.UpdatedAt = now
+		s.data.Schedules = append(s.data.Schedules, sc)
+	} else {
+		sc.CreatedAt = s.data.Schedules[idx].CreatedAt
+		if sc.LastRunDay == "" {
+			sc.LastRunDay = s.data.Schedules[idx].LastRunDay
+		}
+		sc.UpdatedAt = now
+		s.data.Schedules[idx] = sc
+	}
+	if err := s.saveLocked(); err != nil {
+		return Schedule{}, err
+	}
+	return sc, nil
+}
+
+func (s *Store) MarkScheduleRun(id, day string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.data.Schedules {
+		if s.data.Schedules[i].ID == id {
+			s.data.Schedules[i].LastRunDay = day
+			return s.saveLocked()
+		}
+	}
+	return fmt.Errorf("schedule %s not found", id)
+}
+
+func (s *Store) DeleteSchedule(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := s.data.Schedules[:0]
+	found := false
+	for _, sc := range s.data.Schedules {
+		if sc.ID == id {
+			found = true
+			continue
+		}
+		out = append(out, sc)
+	}
+	if !found {
+		return fmt.Errorf("schedule %s not found", id)
+	}
+	s.data.Schedules = out
 	return s.saveLocked()
 }
 

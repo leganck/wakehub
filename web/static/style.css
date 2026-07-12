@@ -528,6 +528,42 @@ input:focus {
   display: none !important;
 }
 
+.check-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
+
+.check-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--surface-pearl);
+}
+
+select {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--hairline);
+  background: var(--surface-pearl);
+  color: var(--ink);
+  font: inherit;
+}
+
+.device-select {
+  margin-right: 8px;
+  width: 18px;
+  height: 18px;
+  accent-color: var(--primary);
+}
+
 #settingsForm input:disabled,
 #settingsForm button:disabled {
   opacity: 0.55;

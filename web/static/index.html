@@ -21,6 +21,8 @@
 
     <nav class="subnav" aria-label="主导航">
       <button data-tab="devices" class="nav-pill active" type="button">设备</button>
+      <button data-tab="groups" class="nav-pill" type="button">分组</button>
+      <button data-tab="schedules" class="nav-pill" type="button">定时</button>
       <button data-tab="discover" class="nav-pill" type="button">发现</button>
       <button data-tab="mqtt" class="nav-pill" type="button">MQTT</button>
       <button data-tab="settings" class="nav-pill" type="button">设置</button>
@@ -31,14 +33,44 @@
         <div class="section-head">
           <div>
             <h2>设备</h2>
-            <p class="section-desc">管理 Magic Packet 与关机客户端绑定</p>
+            <p class="section-desc">WOL / 关机 / 在线探测 / 多网卡</p>
           </div>
           <div class="section-actions">
+            <button id="btnBatchWake" class="btn btn-wake" type="button">批量唤醒</button>
+            <button id="btnBatchShutdown" class="btn btn-shutdown" type="button">批量关机</button>
             <button id="btnRefreshDevices" class="btn btn-secondary" type="button">刷新</button>
             <button id="btnAddDevice" class="btn btn-primary" type="button">添加设备</button>
           </div>
         </div>
         <div id="deviceList" class="stack"></div>
+      </section>
+
+      <section id="tab-groups" class="tab">
+        <div class="section-head">
+          <div>
+            <h2>分组</h2>
+            <p class="section-desc">设备分组与整组唤醒/关机</p>
+          </div>
+          <div class="section-actions">
+            <button id="btnRefreshGroups" class="btn btn-secondary" type="button">刷新</button>
+            <button id="btnAddGroup" class="btn btn-primary" type="button">新建分组</button>
+          </div>
+        </div>
+        <div id="groupList" class="stack"></div>
+      </section>
+
+      <section id="tab-schedules" class="tab">
+        <div class="section-head">
+          <div>
+            <h2>定时任务</h2>
+            <p class="section-desc">按本地时间定时唤醒或关机（设备或分组）</p>
+          </div>
+          <div class="section-actions">
+            <button id="btnRefreshSchedules" class="btn btn-secondary" type="button">刷新</button>
+            <button id="btnAddSchedule" class="btn btn-primary" type="button">新建任务</button>
+          </div>
+        </div>
+        <div id="scheduleList" class="stack"></div>
       </section>
 
       <section id="tab-discover" class="tab">
@@ -151,9 +183,20 @@
             <span class="field-label">WS 路径</span>
             <input name="wsPath" placeholder="/api/ws/client" autocomplete="off" />
           </label>
+          <h3 class="block-title" style="margin-top:8px">Webhook 通知</h3>
+          <label class="field">
+            <span class="field-label">Webhook URL</span>
+            <input name="notifyWebhook" placeholder="https://example.com/hook" autocomplete="off" />
+          </label>
+          <div class="check-row">
+            <label class="check"><input name="notifyOnWake" type="checkbox" /><span>唤醒</span></label>
+            <label class="check"><input name="notifyOnShutdown" type="checkbox" /><span>关机</span></label>
+            <label class="check"><input name="notifyOnProbeChange" type="checkbox" /><span>探测状态变化</span></label>
+            <label class="check"><input name="notifyOnSchedule" type="checkbox" /><span>定时任务</span></label>
+          </div>
           <div class="form-footer">
             <button type="submit" class="btn btn-primary">保存设置</button>
-            <p class="fine-print">修改监听地址需重启服务端进程后生效。</p>
+            <p class="fine-print">修改监听地址需重启服务端进程后生效。通知为 POST JSON。</p>
           </div>
         </form>
 
@@ -193,6 +236,12 @@
         <input name="name" required />
       </label>
       <label class="field">
+        <span class="field-label">从客户端网卡选择（多网卡）</span>
+        <select name="nicPick" id="nicPick">
+          <option value="">— 手动填写 MAC —</option>
+        </select>
+      </label>
+      <label class="field">
         <span class="field-label">MAC</span>
         <input name="mac" required placeholder="AA:BB:CC:DD:EE:FF" />
       </label>
@@ -202,7 +251,7 @@
       </label>
       <div class="field-grid">
         <label class="field">
-          <span class="field-label">端口</span>
+          <span class="field-label">WOL 端口</span>
           <input name="port" type="number" value="9" />
         </label>
         <label class="field">
@@ -213,6 +262,32 @@
       <label class="field">
         <span class="field-label">绑定客户端 Key</span>
         <input name="boundClientKey" placeholder="可选" />
+      </label>
+      <label class="field">
+        <span class="field-label">首选网卡名</span>
+        <input name="preferredNic" placeholder="如 eth0" />
+      </label>
+      <label class="field">
+        <span class="field-label">在线探测</span>
+        <select name="probeMethod">
+          <option value="off">关闭</option>
+          <option value="tcp">TCP 端口</option>
+          <option value="icmp">ICMP Ping</option>
+        </select>
+      </label>
+      <div class="field-grid">
+        <label class="field">
+          <span class="field-label">探测主机</span>
+          <input name="probeHost" placeholder="空=客户端 IPv4" />
+        </label>
+        <label class="field">
+          <span class="field-label">TCP 端口</span>
+          <input name="probePort" type="number" value="3389" />
+        </label>
+      </div>
+      <label class="field">
+        <span class="field-label">探测间隔（秒）</span>
+        <input name="probeInterval" type="number" value="60" min="15" />
       </label>
       <label class="check">
         <input name="bemfaEnable" type="checkbox" />
@@ -231,6 +306,86 @@
         <button id="btnSaveDevice" value="save" type="submit" class="btn btn-primary">保存</button>
       </div>
       <p id="deviceFormError" class="error"></p>
+    </form>
+  </dialog>
+
+  <dialog id="groupDialog">
+    <form method="dialog" id="groupForm" class="card dialog-card">
+      <h3 id="groupDialogTitle">分组</h3>
+      <input type="hidden" name="id" />
+      <label class="field">
+        <span class="field-label">名称</span>
+        <input name="name" required />
+      </label>
+      <div class="field">
+        <span class="field-label">设备</span>
+        <div id="groupDeviceChecks" class="check-list"></div>
+      </div>
+      <div class="dialog-actions">
+        <button value="cancel" type="submit" class="btn btn-secondary">取消</button>
+        <button value="save" type="submit" class="btn btn-primary">保存</button>
+      </div>
+      <p id="groupFormError" class="error"></p>
+    </form>
+  </dialog>
+
+  <dialog id="scheduleDialog">
+    <form method="dialog" id="scheduleForm" class="card dialog-card">
+      <h3 id="scheduleDialogTitle">定时任务</h3>
+      <input type="hidden" name="id" />
+      <label class="field">
+        <span class="field-label">名称</span>
+        <input name="name" required />
+      </label>
+      <label class="check">
+        <input name="enabled" type="checkbox" checked />
+        <span>启用</span>
+      </label>
+      <label class="field">
+        <span class="field-label">动作</span>
+        <select name="action">
+          <option value="wake">唤醒</option>
+          <option value="shutdown">关机</option>
+        </select>
+      </label>
+      <label class="field">
+        <span class="field-label">目标类型</span>
+        <select name="targetType" id="schedTargetType">
+          <option value="device">设备</option>
+          <option value="group">分组</option>
+        </select>
+      </label>
+      <label class="field">
+        <span class="field-label">目标</span>
+        <select name="targetId" id="schedTargetId"></select>
+      </label>
+      <div class="field-grid">
+        <label class="field">
+          <span class="field-label">时 (0-23)</span>
+          <input name="hour" type="number" min="0" max="23" value="8" />
+        </label>
+        <label class="field">
+          <span class="field-label">分 (0-59)</span>
+          <input name="minute" type="number" min="0" max="59" value="0" />
+        </label>
+      </div>
+      <div class="field">
+        <span class="field-label">星期（不选=每天）</span>
+        <div class="check-row" id="schedWeekdays">
+          <label class="check"><input type="checkbox" value="1" /><span>一</span></label>
+          <label class="check"><input type="checkbox" value="2" /><span>二</span></label>
+          <label class="check"><input type="checkbox" value="3" /><span>三</span></label>
+          <label class="check"><input type="checkbox" value="4" /><span>四</span></label>
+          <label class="check"><input type="checkbox" value="5" /><span>五</span></label>
+          <label class="check"><input type="checkbox" value="6" /><span>六</span></label>
+          <label class="check"><input type="checkbox" value="0" /><span>日</span></label>
+        </div>
+      </div>
+      <div class="dialog-actions">
+        <button value="cancel" type="submit" class="btn btn-secondary">取消</button>
+        <button value="save" type="submit" class="btn btn-primary">保存</button>
+      </div>
+      <p id="scheduleFormError" class="error"></p>
     </form>
   </dialog>
 

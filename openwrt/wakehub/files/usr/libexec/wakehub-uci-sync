@@ -1,7 +1,5 @@
 #!/bin/sh
-# Sync UCI global settings into WakeHub config.json (preserve devices[]).
-# Prefer jsonfilter when available; fall back to full rewrite with empty devices
-# only when the config file is missing.
+# Sync UCI global settings into WakeHub config.json (preserve devices/groups/schedules).
 
 . /lib/functions.sh 2>/dev/null || true
 
@@ -60,9 +58,23 @@ json_escape() {
 		-e ':a;N;$!ba;s/\n/\\n/g' 2>/dev/null || printf '%s' "$1"
 }
 
+json_get() {
+	# json_get path key default
+	local cfg="$1" key="$2" def="$3" raw
+	if [ -f "$cfg" ] && command -v jsonfilter >/dev/null 2>&1; then
+		raw=$(jsonfilter -i "$cfg" -e "@.$key" 2>/dev/null) || raw=
+		if [ -n "$raw" ]; then
+			printf '%s' "$raw"
+			return 0
+		fi
+	fi
+	printf '%s' "$def"
+}
+
 write_config() {
-	local devices="$1"
+	local devices="$1" groups="$2" schedules="$3"
 	local listen bemfa token wspath user pass auth_json mode
+	local notify_wh notify_wake notify_shut notify_probe notify_sched
 	local dir tmp
 
 	listen=$(json_escape ":${LISTEN_PORT}")
@@ -78,7 +90,19 @@ write_config() {
 		auth_json="false"
 	fi
 
+	notify_wh=$(json_escape "$(json_get "$CONFIG_PATH" 'settings.notifyWebhook' '')")
+	notify_wake=$(json_get "$CONFIG_PATH" 'settings.notifyOnWake' 'false')
+	notify_shut=$(json_get "$CONFIG_PATH" 'settings.notifyOnShutdown' 'false')
+	notify_probe=$(json_get "$CONFIG_PATH" 'settings.notifyOnProbeChange' 'false')
+	notify_sched=$(json_get "$CONFIG_PATH" 'settings.notifyOnSchedule' 'false')
+	case "$notify_wake" in true|1) notify_wake=true ;; *) notify_wake=false ;; esac
+	case "$notify_shut" in true|1) notify_shut=true ;; *) notify_shut=false ;; esac
+	case "$notify_probe" in true|1) notify_probe=true ;; *) notify_probe=false ;; esac
+	case "$notify_sched" in true|1) notify_sched=true ;; *) notify_sched=false ;; esac
+
 	[ -n "$devices" ] || devices='[]'
+	[ -n "$groups" ] || groups='[]'
+	[ -n "$schedules" ] || schedules='[]'
 
 	dir=$(dirname "$CONFIG_PATH")
 	mkdir -p "$dir"
@@ -96,48 +120,49 @@ write_config() {
     "basicAuthUser": "${user}",
     "basicAuthPassword": "${pass}",
     "globalManagedByLuci": true,
-    "webGlobalMode": "${mode}"
+    "webGlobalMode": "${mode}",
+    "notifyWebhook": "${notify_wh}",
+    "notifyOnWake": ${notify_wake},
+    "notifyOnShutdown": ${notify_shut},
+    "notifyOnProbeChange": ${notify_probe},
+    "notifyOnSchedule": ${notify_sched}
   },
-  "devices": ${devices}
+  "devices": ${devices},
+  "groups": ${groups},
+  "schedules": ${schedules}
 }
 EOF
 	mv "$tmp" "$CONFIG_PATH"
 }
 
-extract_devices() {
-	local cfg="$1"
+extract_array() {
+	local cfg="$1" key="$2"
 	local raw
-
-	if command -v jsonfilter >/dev/null 2>&1; then
-		raw=$(jsonfilter -i "$cfg" -e '@.devices' 2>/dev/null) || raw=
-		if [ -n "$raw" ]; then
-			case "$raw" in
-			\[*) printf '%s' "$raw"; return 0 ;;
-			esac
-		fi
+	if [ -f "$cfg" ] && command -v jsonfilter >/dev/null 2>&1; then
+		raw=$(jsonfilter -i "$cfg" -e "@.$key" 2>/dev/null) || raw=
+		case "$raw" in
+		\[*) printf '%s' "$raw"; return 0 ;;
+		esac
 	fi
-
-	if command -v jq >/dev/null 2>&1; then
-		jq -c '.devices // []' "$cfg" 2>/dev/null && return 0
+	if [ -f "$cfg" ] && command -v jq >/dev/null 2>&1; then
+		jq -c ".$key // []" "$cfg" 2>/dev/null && return 0
 	fi
-
-	return 1
+	printf '%s' '[]'
 }
 
 main() {
 	load_uci
 
-	if [ ! -f "$CONFIG_PATH" ]; then
-		write_config '[]'
-		return 0
+	devices='[]'
+	groups='[]'
+	schedules='[]'
+	if [ -f "$CONFIG_PATH" ]; then
+		devices=$(extract_array "$CONFIG_PATH" devices)
+		groups=$(extract_array "$CONFIG_PATH" groups)
+		schedules=$(extract_array "$CONFIG_PATH" schedules)
 	fi
 
-	devices=$(extract_devices "$CONFIG_PATH") || {
-		echo "wakehub-uci-sync: keep existing $CONFIG_PATH (devices extract failed)" >&2
-		return 0
-	}
-
-	write_config "$devices"
+	write_config "$devices" "$groups" "$schedules"
 }
 
 main "$@"

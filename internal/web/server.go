@@ -20,7 +20,13 @@ type Server struct {
 	devices *device.Service
 	hub     *clientlink.Hub
 	browser *mdns.Browser
+	prober  ProbeRunner
 	mux     *http.ServeMux
+}
+
+// ProbeRunner is optional online probe control.
+type ProbeRunner interface {
+	ProbeDevice(id string) (any, error)
 }
 
 func New(store *config.Store, devices *device.Service, hub *clientlink.Hub, browser *mdns.Browser) *Server {
@@ -28,6 +34,8 @@ func New(store *config.Store, devices *device.Service, hub *clientlink.Hub, brow
 	s.routes()
 	return s
 }
+
+func (s *Server) SetProber(p ProbeRunner) { s.prober = p }
 
 func (s *Server) Handler() http.Handler {
 	return s.withBasicAuth(s.mux)
@@ -42,6 +50,11 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/discover", s.handleDiscover)
 	s.mux.HandleFunc("/api/mqtt", s.handleMQTT)
 	s.mux.HandleFunc("/api/mqtt/logs", s.handleMQTTLogs)
+	s.mux.HandleFunc("/api/groups", s.handleGroups)
+	s.mux.HandleFunc("/api/groups/", s.handleGroupSub)
+	s.mux.HandleFunc("/api/schedules", s.handleSchedules)
+	s.mux.HandleFunc("/api/schedules/", s.handleScheduleSub)
+	s.mux.HandleFunc("/api/batch", s.handleBatch)
 
 	settings := s.store.Settings()
 	wsPath := settings.WSPath
@@ -168,6 +181,11 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 			if pw := strings.TrimSpace(body.BasicAuthPassword); pw != "" {
 				st.BasicAuthPassword = pw
 			}
+			st.NotifyWebhook = strings.TrimSpace(body.NotifyWebhook)
+			st.NotifyOnWake = body.NotifyOnWake
+			st.NotifyOnShutdown = body.NotifyOnShutdown
+			st.NotifyOnProbeChange = body.NotifyOnProbeChange
+			st.NotifyOnSchedule = body.NotifyOnSchedule
 			st.GlobalManagedByLuci = managed
 			st.WebGlobalMode = mode
 			return nil
@@ -231,6 +249,10 @@ func (s *Server) handleDeviceSub(w http.ResponseWriter, r *http.Request) {
 		s.handleFromClient(w, r)
 		return
 	}
+	if id == "batch" {
+		s.handleBatch(w, r)
+		return
+	}
 	if len(parts) == 1 {
 		switch r.Method {
 		case http.MethodGet:
@@ -285,6 +307,21 @@ func (s *Server) handleDeviceSub(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, 200, map[string]any{"ok": true})
+	case "probe":
+		if r.Method != http.MethodPost {
+			writeJSON(w, 405, map[string]any{"error": "method not allowed"})
+			return
+		}
+		if s.prober == nil {
+			writeJSON(w, 503, map[string]any{"error": "probe runner not ready"})
+			return
+		}
+		res, err := s.prober.ProbeDevice(id)
+		if err != nil {
+			writeJSON(w, 400, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, 200, map[string]any{"probe": res})
 	default:
 		writeJSON(w, 404, map[string]any{"error": "not found"})
 	}

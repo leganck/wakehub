@@ -17,6 +17,8 @@ import (
 	"github.com/leganck/wakehub/internal/config"
 	"github.com/leganck/wakehub/internal/device"
 	"github.com/leganck/wakehub/internal/mdns"
+	"github.com/leganck/wakehub/internal/probe"
+	"github.com/leganck/wakehub/internal/schedule"
 	webserver "github.com/leganck/wakehub/internal/web"
 )
 
@@ -65,7 +67,13 @@ func main() {
 	defer cancel()
 	go browser.Run(ctx)
 
+	prober := probe.NewRunner(store, svc.ProbeCache(), svc.NICsForProbe, svc.OnProbeChange)
+	go prober.Run(ctx)
+	sched := schedule.New(store, svc, scheduleNote{svc: svc})
+	go sched.Run(ctx)
+
 	api := webserver.New(store, svc, hub, browser)
+	api.SetProber(probeAdapter{r: prober})
 	addr := store.Settings().Listen
 	if addr == "" {
 		addr = config.DefaultListen
@@ -88,6 +96,18 @@ func main() {
 	shctx, c2 := context.WithTimeout(context.Background(), 5*time.Second)
 	defer c2()
 	_ = srv.Shutdown(shctx)
+}
+
+type probeAdapter struct{ r *probe.Runner }
+
+func (p probeAdapter) ProbeDevice(id string) (any, error) {
+	return p.r.ProbeDevice(id)
+}
+
+type scheduleNote struct{ svc *device.Service }
+
+func (n scheduleNote) OnSchedule(action, targetType, targetID, targetName string, ok bool, errMsg string) {
+	n.svc.OnSchedule(action, targetType, targetID, targetName, ok, errMsg)
 }
 
 func printStartupSummary(store *config.Store, svc *device.Service, hub *clientlink.Hub, addr string) {

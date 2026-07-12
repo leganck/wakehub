@@ -23,6 +23,11 @@ function settingsBodyFromForm(f, extra = {}) {
     wsPath: f.wsPath.value,
     basicAuthEnable: !!f.basicAuthEnable?.checked,
     basicAuthUser: (f.basicAuthUser?.value || 'admin').trim() || 'admin',
+    notifyWebhook: f.notifyWebhook?.value || '',
+    notifyOnWake: !!f.notifyOnWake?.checked,
+    notifyOnShutdown: !!f.notifyOnShutdown?.checked,
+    notifyOnProbeChange: !!f.notifyOnProbeChange?.checked,
+    notifyOnSchedule: !!f.notifyOnSchedule?.checked,
     ...extra,
   };
   // Only send password when user typed a new one (empty = keep server-side value).
@@ -46,6 +51,11 @@ function applySettingsToForm(f, st) {
       ? '已设置，留空则不修改'
       : '默认 admin，建议修改';
   }
+  if (f.notifyWebhook) f.notifyWebhook.value = st.notifyWebhook || '';
+  if (f.notifyOnWake) f.notifyOnWake.checked = !!st.notifyOnWake;
+  if (f.notifyOnShutdown) f.notifyOnShutdown.checked = !!st.notifyOnShutdown;
+  if (f.notifyOnProbeChange) f.notifyOnProbeChange.checked = !!st.notifyOnProbeChange;
+  if (f.notifyOnSchedule) f.notifyOnSchedule.checked = !!st.notifyOnSchedule;
   const authHint = $('#authPasswordHint');
   if (authHint) {
     authHint.textContent = st.basicAuthPasswordSet
@@ -64,6 +74,11 @@ const GLOBAL_SETTING_FIELDS = [
   'bemfaUID',
   'clientToken',
   'wsPath',
+  'notifyWebhook',
+  'notifyOnWake',
+  'notifyOnShutdown',
+  'notifyOnProbeChange',
+  'notifyOnSchedule',
 ];
 
 function applyGlobalSettingsLock(st) {
@@ -111,6 +126,8 @@ function showTab(name) {
   if (name === 'mqtt') loadMQTT();
   if (name === 'discover') loadDiscover();
   if (name === 'devices') loadDevices();
+  if (name === 'groups') loadGroups();
+  if (name === 'schedules') loadSchedules();
   if (name === 'settings') loadSettings();
 }
 $$('nav button').forEach((b) => b.addEventListener('click', () => showTab(b.dataset.tab)));
@@ -231,25 +248,40 @@ $('#btnClearMQTTLogs').onclick = async () => {
   }
 };
 
+function probeBadge(d) {
+  if (!d.probeMethod || d.probeMethod === 'off') {
+    return '<span class="badge off">探测关</span>';
+  }
+  if (d.probeOnline === true) return '<span class="badge on">探测在线</span>';
+  if (d.probeOnline === false) return '<span class="badge off">探测离线</span>';
+  return '<span class="badge off">探测中</span>';
+}
+
 function deviceCard(d) {
   const el = document.createElement('div');
   el.className = 'device';
+  const nicHint = d.preferredNic ? ` · 网卡 ${escapeHtml(d.preferredNic)}` : '';
   el.innerHTML = `
     <div class="device-head">
       <div>
-        <h3 class="device-title">${escapeHtml(d.name)}</h3>
-        <div class="meta">MAC ${escapeHtml(d.mac)}</div>
+        <h3 class="device-title">
+          <input type="checkbox" class="device-select" data-id="${escapeHtml(d.id)}" />
+          ${escapeHtml(d.name)}
+        </h3>
+        <div class="meta">MAC ${escapeHtml(d.mac)}${nicHint}</div>
       </div>
       <div class="badges">
         <span class="badge ${d.clientOnline ? 'on' : 'off'}">客户端${d.clientOnline ? '在线' : '离线'}</span>
+        ${probeBadge(d)}
         <span class="badge ${d.bemfaEnable ? 'on' : 'off'}">巴法${d.bemfaEnable ? '开' : '关'}</span>
       </div>
     </div>
-    <div class="meta">广播 ${escapeHtml(d.broadcast || '自动')} · 端口 ${d.port || 9} · 重复 ${d.repeat || 3}</div>
-    <div class="meta">主题 ${escapeHtml(d.bemfaTopic || '—')} · 绑定 ${escapeHtml(d.boundClientKey || '—')}</div>
+    <div class="meta">广播 ${escapeHtml(d.broadcast || '自动')} · WOL ${d.port || 9} · 重复 ${d.repeat || 3}</div>
+    <div class="meta">探测 ${escapeHtml(d.probeMethod || 'off')}${d.probeHost ? ' @ ' + escapeHtml(d.probeHost) : ''}${d.probeMethod === 'tcp' ? ':' + (d.probePort || 3389) : ''} · 绑定 ${escapeHtml(d.boundClientKey || '—')}</div>
     <div class="actions">
       <button class="btn btn-wake" data-act="wake" type="button">唤醒</button>
       <button class="btn btn-shutdown" data-act="shutdown" type="button">关机</button>
+      <button class="btn btn-utility" data-act="probe" type="button">探测</button>
       <button class="btn btn-utility" data-act="edit" type="button">编辑</button>
       <button class="btn btn-danger" data-act="del" type="button">删除</button>
     </div>
@@ -269,18 +301,12 @@ function deviceCard(d) {
   el.querySelector('[data-act=shutdown]').onclick = async () => {
     const msg = el.querySelector('.actmsg');
     const name = d.name || d.id || '该设备';
-    const ok = confirm(
-      `确认向「${name}」发送关机指令？\n\n` +
-        `设备将立即关机（需客户端在线）。\n` +
-        `此操作不可撤销，请再次确认。`
-    );
-    if (!ok) {
+    if (!confirm(`确认向「${name}」发送关机指令？\n\n设备将立即关机（需客户端在线）。`)) {
       msg.className = 'actmsg muted';
       msg.textContent = '已取消关机';
       return;
     }
-    const ok2 = confirm(`最后确认：立即关闭「${name}」？`);
-    if (!ok2) {
+    if (!confirm(`最后确认：立即关闭「${name}」？`)) {
       msg.className = 'actmsg muted';
       msg.textContent = '已取消关机';
       return;
@@ -289,6 +315,21 @@ function deviceCard(d) {
       await api('/api/devices/' + d.id + '/shutdown', { method: 'POST', body: '{}' });
       msg.className = 'ok actmsg';
       msg.textContent = '已发送关机';
+    } catch (e) {
+      msg.className = 'error actmsg';
+      msg.textContent = e.message;
+    }
+  };
+  el.querySelector('[data-act=probe]').onclick = async () => {
+    const msg = el.querySelector('.actmsg');
+    try {
+      const res = await api('/api/devices/' + d.id + '/probe', { method: 'POST', body: '{}' });
+      const p = res.probe || {};
+      msg.className = p.online ? 'ok actmsg' : 'error actmsg';
+      msg.textContent = p.online
+        ? `探测在线 ${p.target || ''} ${p.latencyMs != null ? p.latencyMs + 'ms' : ''}`
+        : `探测离线 ${p.error || ''}`;
+      loadDevices();
     } catch (e) {
       msg.className = 'error actmsg';
       msg.textContent = e.message;
@@ -303,15 +344,48 @@ function deviceCard(d) {
   return el;
 }
 
-async function loadDevices() {
-  const data = await api('/api/devices');
-  const box = $('#deviceList');
-  box.innerHTML = '';
-  (data.list || []).forEach((d) => box.appendChild(deviceCard(d)));
-  if (!(data.list || []).length) {
-    box.innerHTML = '<p class="empty muted">暂无设备，点击「添加设备」开始</p>';
+function selectedDeviceIds() {
+  return $$('#deviceList .device-select:checked').map((el) => el.dataset.id).filter(Boolean);
+}
+
+async function batchAction(action) {
+  const ids = selectedDeviceIds();
+  if (!ids.length) {
+    alert('请先勾选设备');
+    return;
   }
-  refreshStatus();
+  if (action === 'shutdown') {
+    if (!confirm(`确认对 ${ids.length} 台设备发送关机？`)) return;
+    if (!confirm('最后确认批量关机？')) return;
+  }
+  try {
+    const res = await api('/api/batch', {
+      method: 'POST',
+      body: JSON.stringify({ action, ids }),
+    });
+    const results = res.results || {};
+    const fail = Object.entries(results).filter(([, v]) => v !== 'ok');
+    alert(fail.length ? `完成，失败 ${fail.length} 台` : `已对 ${ids.length} 台执行 ${action}`);
+    loadDevices();
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+function fillNicPick(d = {}) {
+  const sel = $('#nicPick');
+  if (!sel) return;
+  const nics = d.boundClientNics || [];
+  sel.innerHTML = '<option value="">— 手动填写 MAC —</option>';
+  nics.forEach((n) => {
+    const ip = (n.ipv4 && n.ipv4[0]) || '';
+    const bcast = (n.broadcast && n.broadcast[0]) || '';
+    const opt = document.createElement('option');
+    opt.value = JSON.stringify({ mac: n.mac, name: n.name, broadcast: bcast, ip });
+    opt.textContent = `${n.name || '?'} · ${n.mac || ''}${ip ? ' · ' + ip : ''}`;
+    if (d.mac && n.mac && d.mac.toLowerCase() === n.mac.toLowerCase()) opt.selected = true;
+    sel.appendChild(opt);
+  });
 }
 
 function openDeviceDialog(d = {}) {
@@ -323,16 +397,37 @@ function openDeviceDialog(d = {}) {
   f.port.value = d.port || 9;
   f.repeat.value = d.repeat || 3;
   f.boundClientKey.value = d.boundClientKey || '';
+  f.preferredNic.value = d.preferredNic || '';
+  f.probeMethod.value = d.probeMethod || 'off';
+  f.probeHost.value = d.probeHost || '';
+  f.probePort.value = d.probePort || 3389;
+  f.probeInterval.value = d.probeInterval || 60;
   f.bemfaEnable.checked = !!d.bemfaEnable;
   f.bemfaTopic.value = d.bemfaTopic || '';
   f.bemfaName.value = d.bemfaName || '';
+  fillNicPick(d);
   $('#deviceDialogTitle').textContent = d.id ? '编辑设备' : '添加设备';
   $('#deviceFormError').textContent = '';
   $('#deviceDialog').showModal();
 }
 
+$('#nicPick')?.addEventListener('change', () => {
+  const f = $('#deviceForm');
+  const v = f.nicPick.value;
+  if (!v) return;
+  try {
+    const n = JSON.parse(v);
+    if (n.mac) f.mac.value = n.mac;
+    if (n.broadcast) f.broadcast.value = n.broadcast;
+    if (n.name) f.preferredNic.value = n.name;
+    if (n.ip && !f.probeHost.value) f.probeHost.value = n.ip;
+  } catch (_) {}
+});
+
 $('#btnAddDevice').onclick = () => openDeviceDialog({});
 $('#btnRefreshDevices').onclick = () => loadDevices();
+$('#btnBatchWake')?.addEventListener('click', () => batchAction('wake'));
+$('#btnBatchShutdown')?.addEventListener('click', () => batchAction('shutdown'));
 
 $('#deviceForm').addEventListener('submit', async (ev) => {
   const submitter = ev.submitter;
@@ -347,6 +442,11 @@ $('#deviceForm').addEventListener('submit', async (ev) => {
     port: Number(f.port.value || 9),
     repeat: Number(f.repeat.value || 3),
     boundClientKey: f.boundClientKey.value,
+    preferredNic: f.preferredNic?.value || '',
+    probeMethod: f.probeMethod?.value || 'off',
+    probeHost: f.probeHost?.value || '',
+    probePort: Number(f.probePort?.value || 3389),
+    probeInterval: Number(f.probeInterval?.value || 60),
     bemfaEnable: f.bemfaEnable.checked,
     bemfaTopic: f.bemfaTopic.value,
     bemfaName: f.bemfaName.value,
@@ -565,6 +665,260 @@ function escapeHtml(s) {
   );
 }
 
+let cachedDevices = [];
+
+async function loadDevices() {
+  const data = await api('/api/devices');
+  cachedDevices = data.list || [];
+  const box = $('#deviceList');
+  box.innerHTML = '';
+  cachedDevices.forEach((d) => box.appendChild(deviceCard(d)));
+  if (!cachedDevices.length) {
+    box.innerHTML = '<p class="empty muted">暂无设备，点击「添加设备」开始</p>';
+  }
+  refreshStatus();
+}
+
+async function loadGroups() {
+  const data = await api('/api/groups');
+  const box = $('#groupList');
+  box.innerHTML = '';
+  (data.list || []).forEach((g) => {
+    const el = document.createElement('div');
+    el.className = 'device';
+    const names = (g.deviceIds || [])
+      .map((id) => cachedDevices.find((d) => d.id === id)?.name || id)
+      .join('、');
+    el.innerHTML = `
+      <div class="device-head">
+        <div>
+          <h3 class="device-title">${escapeHtml(g.name)}</h3>
+          <div class="meta">${(g.deviceIds || []).length} 台：${escapeHtml(names || '—')}</div>
+        </div>
+      </div>
+      <div class="actions">
+        <button class="btn btn-wake" type="button" data-act="wake">整组唤醒</button>
+        <button class="btn btn-shutdown" type="button" data-act="shutdown">整组关机</button>
+        <button class="btn btn-utility" type="button" data-act="edit">编辑</button>
+        <button class="btn btn-danger" type="button" data-act="del">删除</button>
+      </div>
+      <p class="actmsg"></p>`;
+    el.querySelector('[data-act=wake]').onclick = async () => {
+      try {
+        await api('/api/groups/' + g.id + '/wake', { method: 'POST', body: '{}' });
+        el.querySelector('.actmsg').className = 'ok actmsg';
+        el.querySelector('.actmsg').textContent = '已发送整组唤醒';
+      } catch (e) {
+        el.querySelector('.actmsg').className = 'error actmsg';
+        el.querySelector('.actmsg').textContent = e.message;
+      }
+    };
+    el.querySelector('[data-act=shutdown]').onclick = async () => {
+      if (!confirm(`确认整组关机「${g.name}」？`)) return;
+      if (!confirm('最后确认整组关机？')) return;
+      try {
+        await api('/api/groups/' + g.id + '/shutdown', { method: 'POST', body: '{}' });
+        el.querySelector('.actmsg').className = 'ok actmsg';
+        el.querySelector('.actmsg').textContent = '已发送整组关机';
+      } catch (e) {
+        el.querySelector('.actmsg').className = 'error actmsg';
+        el.querySelector('.actmsg').textContent = e.message;
+      }
+    };
+    el.querySelector('[data-act=edit]').onclick = () => openGroupDialog(g);
+    el.querySelector('[data-act=del]').onclick = async () => {
+      if (!confirm('删除分组 ' + g.name + ' ?')) return;
+      await api('/api/groups/' + g.id, { method: 'DELETE' });
+      loadGroups();
+    };
+    box.appendChild(el);
+  });
+  if (!(data.list || []).length) {
+    box.innerHTML = '<p class="empty muted">暂无分组</p>';
+  }
+}
+
+async function openGroupDialog(g = {}) {
+  if (!cachedDevices.length) {
+    try {
+      const data = await api('/api/devices');
+      cachedDevices = data.list || [];
+    } catch (_) {}
+  }
+  const f = $('#groupForm');
+  f.id.value = g.id || '';
+  f.name.value = g.name || '';
+  const box = $('#groupDeviceChecks');
+  const selected = new Set(g.deviceIds || []);
+  box.innerHTML = cachedDevices
+    .map(
+      (d) =>
+        `<label class="check"><input type="checkbox" value="${escapeHtml(d.id)}" ${
+          selected.has(d.id) ? 'checked' : ''
+        }/><span>${escapeHtml(d.name)}</span></label>`
+    )
+    .join('');
+  if (!cachedDevices.length) box.innerHTML = '<p class="muted">暂无设备</p>';
+  $('#groupDialogTitle').textContent = g.id ? '编辑分组' : '新建分组';
+  $('#groupFormError').textContent = '';
+  $('#groupDialog').showModal();
+}
+
+$('#btnAddGroup')?.addEventListener('click', () => openGroupDialog({}));
+$('#btnRefreshGroups')?.addEventListener('click', () => loadGroups());
+
+$('#groupForm')?.addEventListener('submit', async (ev) => {
+  if (ev.submitter && ev.submitter.value === 'cancel') return;
+  ev.preventDefault();
+  const f = ev.target;
+  const ids = [...f.querySelectorAll('#groupDeviceChecks input:checked')].map((el) => el.value);
+  const body = { id: f.id.value, name: f.name.value, deviceIds: ids };
+  try {
+    if (body.id) await api('/api/groups/' + body.id, { method: 'PUT', body: JSON.stringify(body) });
+    else await api('/api/groups', { method: 'POST', body: JSON.stringify(body) });
+    $('#groupDialog').close();
+    loadGroups();
+  } catch (e) {
+    $('#groupFormError').textContent = e.message;
+  }
+});
+
+const WD_LABEL = { 0: '日', 1: '一', 2: '二', 3: '三', 4: '四', 5: '五', 6: '六' };
+
+async function loadSchedules() {
+  if (!cachedDevices.length) {
+    try {
+      const data = await api('/api/devices');
+      cachedDevices = data.list || [];
+    } catch (_) {}
+  }
+  let groups = [];
+  try {
+    groups = (await api('/api/groups')).list || [];
+  } catch (_) {}
+  const data = await api('/api/schedules');
+  const box = $('#scheduleList');
+  box.innerHTML = '';
+  (data.list || []).forEach((sc) => {
+    const el = document.createElement('div');
+    el.className = 'device';
+    let target = sc.deviceId || sc.groupId || '—';
+    if (sc.deviceId) {
+      target = cachedDevices.find((d) => d.id === sc.deviceId)?.name || sc.deviceId;
+    } else if (sc.groupId) {
+      target = groups.find((g) => g.id === sc.groupId)?.name || sc.groupId;
+    }
+    const days =
+      sc.weekdays && sc.weekdays.length
+        ? sc.weekdays.map((d) => WD_LABEL[d] || d).join('')
+        : '每天';
+    const hh = String(sc.hour ?? 0).padStart(2, '0');
+    const mm = String(sc.minute ?? 0).padStart(2, '0');
+    el.innerHTML = `
+      <div class="device-head">
+        <div>
+          <h3 class="device-title">${escapeHtml(sc.name)}</h3>
+          <div class="meta">${sc.action === 'wake' ? '唤醒' : '关机'} · ${escapeHtml(target)} · ${hh}:${mm} · 周${escapeHtml(days)}</div>
+        </div>
+        <span class="badge ${sc.enabled ? 'on' : 'off'}">${sc.enabled ? '启用' : '停用'}</span>
+      </div>
+      <div class="meta">上次执行日 ${escapeHtml(sc.lastRunDay || '—')}</div>
+      <div class="actions">
+        <button class="btn btn-utility" type="button" data-act="edit">编辑</button>
+        <button class="btn btn-danger" type="button" data-act="del">删除</button>
+      </div>`;
+    el.querySelector('[data-act=edit]').onclick = () => openScheduleDialog(sc, groups);
+    el.querySelector('[data-act=del]').onclick = async () => {
+      if (!confirm('删除任务 ' + sc.name + ' ?')) return;
+      await api('/api/schedules/' + sc.id, { method: 'DELETE' });
+      loadSchedules();
+    };
+    box.appendChild(el);
+  });
+  if (!(data.list || []).length) {
+    box.innerHTML = '<p class="empty muted">暂无定时任务</p>';
+  }
+}
+
+async function fillScheduleTargets(type, selected) {
+  const sel = $('#schedTargetId');
+  sel.innerHTML = '';
+  if (type === 'group') {
+    const groups = (await api('/api/groups')).list || [];
+    groups.forEach((g) => {
+      const o = document.createElement('option');
+      o.value = g.id;
+      o.textContent = g.name;
+      if (g.id === selected) o.selected = true;
+      sel.appendChild(o);
+    });
+  } else {
+    if (!cachedDevices.length) {
+      cachedDevices = (await api('/api/devices')).list || [];
+    }
+    cachedDevices.forEach((d) => {
+      const o = document.createElement('option');
+      o.value = d.id;
+      o.textContent = d.name;
+      if (d.id === selected) o.selected = true;
+      sel.appendChild(o);
+    });
+  }
+}
+
+async function openScheduleDialog(sc = {}, groups) {
+  const f = $('#scheduleForm');
+  f.id.value = sc.id || '';
+  f.name.value = sc.name || '';
+  f.enabled.checked = sc.enabled !== false;
+  f.action.value = sc.action || 'wake';
+  f.hour.value = sc.hour ?? 8;
+  f.minute.value = sc.minute ?? 0;
+  const isGroup = !!sc.groupId;
+  f.targetType.value = isGroup ? 'group' : 'device';
+  await fillScheduleTargets(f.targetType.value, isGroup ? sc.groupId : sc.deviceId);
+  $$('#schedWeekdays input').forEach((el) => {
+    el.checked = Array.isArray(sc.weekdays) && sc.weekdays.map(String).includes(el.value);
+  });
+  $('#scheduleDialogTitle').textContent = sc.id ? '编辑任务' : '新建任务';
+  $('#scheduleFormError').textContent = '';
+  $('#scheduleDialog').showModal();
+}
+
+$('#schedTargetType')?.addEventListener('change', (ev) => {
+  fillScheduleTargets(ev.target.value, '');
+});
+$('#btnAddSchedule')?.addEventListener('click', () => openScheduleDialog({}));
+$('#btnRefreshSchedules')?.addEventListener('click', () => loadSchedules());
+
+$('#scheduleForm')?.addEventListener('submit', async (ev) => {
+  if (ev.submitter && ev.submitter.value === 'cancel') return;
+  ev.preventDefault();
+  const f = ev.target;
+  const weekdays = $$('#schedWeekdays input:checked').map((el) => Number(el.value));
+  const body = {
+    id: f.id.value,
+    name: f.name.value,
+    enabled: f.enabled.checked,
+    action: f.action.value,
+    hour: Number(f.hour.value || 0),
+    minute: Number(f.minute.value || 0),
+    weekdays,
+    deviceId: '',
+    groupId: '',
+  };
+  if (f.targetType.value === 'group') body.groupId = f.targetId.value;
+  else body.deviceId = f.targetId.value;
+  try {
+    if (body.id) await api('/api/schedules/' + body.id, { method: 'PUT', body: JSON.stringify(body) });
+    else await api('/api/schedules', { method: 'POST', body: JSON.stringify(body) });
+    $('#scheduleDialog').close();
+    loadSchedules();
+  } catch (e) {
+    $('#scheduleFormError').textContent = e.message;
+  }
+});
+
 // boot
 showTab('devices');
 loadDevices();
@@ -573,4 +927,5 @@ loadDiscover();
 setInterval(refreshStatus, 10000);
 setInterval(() => {
   if (activeTab() === 'mqtt') loadMQTT();
-}, 3000);
+  if (activeTab() === 'devices') loadDevices();
+}, 15000);

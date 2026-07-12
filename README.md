@@ -98,13 +98,20 @@ docker compose -f deploy/docker-compose.macvlan.yml up -d --build
 | 配置迁移 | 旧配置无 `basicAuthEnable` 时自动启用认证并写 `config.json.bak` |
 | 关机确认 | Web 关机需**两次确认** |
 | OpenWrt 全局项 | 默认以 LuCI 为准，Web 设置只读；可选 writeback 写回 UCI |
+| 在线探测 | 设备级 TCP/ICMP 探测，卡片展示状态，可手动探测 |
+| 定时任务 | 按本地时间 + 星期，对设备或分组执行唤醒/关机 |
+| 多网卡 | 编辑设备时可从客户端网卡列表选择 MAC/广播/探测 IP |
+| 批量/分组 | 勾选批量操作；分组整组唤醒/关机 |
+| 通知 | Webhook POST：唤醒/关机/探测变化/定时任务 |
 
 ## API
 
 - `GET/PUT /api/settings`
 - `GET/POST /api/devices` · `PUT/DELETE /api/devices/{id}`
-- `POST /api/devices/{id}/wake` · `POST /api/devices/{id}/shutdown`
-- `POST /api/devices/from-client`
+- `POST /api/devices/{id}/wake` · `POST /api/devices/{id}/shutdown` · `POST /api/devices/{id}/probe`
+- `POST /api/batch` · `POST /api/devices/from-client`
+- `GET/POST /api/groups` · `PUT/DELETE /api/groups/{id}` · `POST .../wake|shutdown`
+- `GET/POST /api/schedules` · `PUT/DELETE /api/schedules/{id}`
 - `GET /api/clients` · `GET /api/discover` · `GET /api/status`
 - `GET /api/mqtt` · `GET|DELETE /api/mqtt/logs`
 - `WS /api/ws/client`
