@@ -14,8 +14,8 @@ import (
 
 // Session dials the server, runs hello + read loop until disconnect or ctx cancel.
 // authed is true after a successful hello_ok.
-// shutdownCmd / restartCmd are local shell lines for host control.
-func Session(ctx context.Context, server, token, key, hostname, shutdownCmd, restartCmd, version string) (authed bool, err error) {
+// shutdownCmd is the local shell line for remote power-off only (remote reboot is not executed).
+func Session(ctx context.Context, server, token, key, hostname, shutdownCmd, version string) (authed bool, err error) {
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
@@ -95,11 +95,9 @@ func Session(ctx context.Context, server, token, key, hostname, shutdownCmd, res
 			case protocol.TypeShutdown:
 				HandleControlMsg(m, "shutdown", shutdownCmd, writeJSON)
 			case protocol.TypeRestart:
-				cmd := restartCmd
-				if cmd == "" {
-					cmd = DefaultRestartCmd()
-				}
-				HandleControlMsg(m, "restart", cmd, writeJSON)
+				// Do not run reboot commands: embedding/executing "shutdown /r" triggers
+				// Windows AV false positives (e.g. CobaltStrike heuristics).
+				log.Printf("ignore remote restart request (unsupported by this client)")
 			case protocol.TypePong:
 			case protocol.TypeError:
 				log.Printf("server error message: %s", string(data))

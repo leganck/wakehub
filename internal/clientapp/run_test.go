@@ -22,7 +22,7 @@ func TestRunStopsOnCancel(t *testing.T) {
 			ShutdownCmd: "true",
 			MDNS:        clientcfg.BoolPtr(false),
 		},
-		Session: func(ctx context.Context, server, token, key, hostname, shutdownCmd, restartCmd, version string) (bool, error) {
+		Session: func(ctx context.Context, server, token, key, hostname, shutdownCmd, version string) (bool, error) {
 			calls++
 			return false, fmt.Errorf("dial failed")
 		},
@@ -44,7 +44,7 @@ func TestRunFatalNoReconnect(t *testing.T) {
 			ShutdownCmd: "true",
 			MDNS:        clientcfg.BoolPtr(false),
 		},
-		Session: func(ctx context.Context, server, token, key, hostname, shutdownCmd, restartCmd, version string) (bool, error) {
+		Session: func(ctx context.Context, server, token, key, hostname, shutdownCmd, version string) (bool, error) {
 			calls++
 			return false, &FatalError{Msg: "token mismatch"}
 		},

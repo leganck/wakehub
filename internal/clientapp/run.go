@@ -16,7 +16,7 @@ type RunOptions struct {
 	Config  clientcfg.Config
 	Version string
 	// Session is optional; tests may inject a stub. nil => Session.
-	Session func(ctx context.Context, server, token, key, hostname, shutdownCmd, restartCmd, version string) (bool, error)
+	Session func(ctx context.Context, server, token, key, hostname, shutdownCmd, version string) (bool, error)
 }
 
 // Run reconnects until ctx is cancelled or a fatal session error occurs.
@@ -60,8 +60,7 @@ func Run(ctx context.Context, opt RunOptions) error {
 			log.Printf("client stopping: %v", err)
 			return nil
 		}
-		restartCmd := DefaultRestartCmd()
-		authed, err := sessionFn(ctx, cfg.Server, cfg.Token, clientKey, hostname, cfg.ShutdownCmd, restartCmd, version)
+		authed, err := sessionFn(ctx, cfg.Server, cfg.Token, clientKey, hostname, cfg.ShutdownCmd, version)
 		if authed {
 			delay = InitialBackoff
 		}

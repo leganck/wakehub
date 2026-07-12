@@ -15,10 +15,12 @@
 |------|------------|------------|
 | 出站 WebSocket | 连 `wakehub-server` | 像 C2 回连 |
 | `sc.exe` 安装服务 | `service install` | 持久化 |
-| `shutdown` / `cmd` | 远程关机/重启 | 像远控 |
+| `shutdown /s` + `cmd` | 远程关机 | 像远控 |
 | 自更新下载 exe | `update apply` | 像投递载荷 |
 | 未代码签名 | 本地/CI 构建 | 信誉为 0 |
 | `-ldflags "-s -w"` | 减小体积 | 像加壳/抹符号 |
+
+> 客户端**不再执行远程重启**（不嵌入/不调用 `shutdown /r`）。实测含 `shutdown /r` 的构建易被标为 CobaltStrike 并秒删；去掉后可正常落地。
 
 Cobalt Strike 信标常被杀软用「Go 网络 + 服务 + 命令执行」一类启发式覆盖，**大量合法 Go 工具会中招**。
 

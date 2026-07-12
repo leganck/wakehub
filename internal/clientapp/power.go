@@ -25,23 +25,6 @@ func DefaultShutdownCmd() string {
 	return "systemctl poweroff"
 }
 
-// DefaultRestartCmd returns a platform-appropriate reboot command.
-func DefaultRestartCmd() string {
-	if runtime.GOOS == "windows" {
-		return "shutdown /r /t 0"
-	}
-	if _, err := exec.LookPath("systemctl"); err == nil {
-		return "systemctl reboot"
-	}
-	if _, err := exec.LookPath("reboot"); err == nil {
-		return "reboot"
-	}
-	if _, err := exec.LookPath("shutdown"); err == nil {
-		return "shutdown -r now"
-	}
-	return "systemctl reboot"
-}
-
 // RunCommand runs a shell command line so paths/args with spaces work.
 // Overridable in tests via CommandRunner.
 var CommandRunner = runCommand
