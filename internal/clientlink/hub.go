@@ -93,19 +93,33 @@ func (h *Hub) Online(key string) bool {
 	return ok
 }
 
-func (h *Hub) Shutdown(key string) error {
+// Shutdown sends a power-off command and returns the requestId.
+func (h *Hub) Shutdown(key string) (requestID string, err error) {
+	return h.SendControl(key, protocol.TypeShutdown)
+}
+
+// Restart sends a reboot command and returns the requestId.
+func (h *Hub) Restart(key string) (requestID string, err error) {
+	return h.SendControl(key, protocol.TypeRestart)
+}
+
+// SendControl pushes a typed control message to a connected client.
+func (h *Hub) SendControl(key, typ string) (requestID string, err error) {
 	h.mu.RLock()
 	c, ok := h.clients[key]
 	h.mu.RUnlock()
 	if !ok {
-		return errors.New("client offline or not bound")
+		return "", errors.New("client offline or not bound")
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	reqID := fmt.Sprintf("%s-%d", key, time.Now().UnixNano())
-	msg, _ := json.Marshal(protocol.NewShutdown(reqID))
+	msg, _ := json.Marshal(protocol.NewControl(typ, reqID))
 	_ = c.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-	return c.conn.WriteMessage(websocket.TextMessage, msg)
+	if err := c.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+		return "", err
+	}
+	return reqID, nil
 }
 
 func writeWSJSON(conn *websocket.Conn, v any) error {

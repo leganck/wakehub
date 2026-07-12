@@ -1,19 +1,4 @@
-const $ = (s, el = document) => el.querySelector(s);
-const $$ = (s, el = document) => [...el.querySelectorAll(s)];
-
-async function api(path, opts = {}) {
-  const res = await fetch(path, {
-    credentials: 'same-origin',
-    headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
-    ...opts,
-  });
-  if (res.status === 401) {
-    throw new Error('需要登录（HTTP Basic 认证）。请刷新页面并输入用户名/密码。');
-  }
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || res.statusText);
-  return data;
-}
+// $ / $$ / api / toast / escapeHtml provided by api.js
 
 function settingsBodyFromForm(f, extra = {}) {
   const body = {
@@ -59,8 +44,18 @@ function applySettingsToForm(f, st) {
   const authHint = $('#authPasswordHint');
   if (authHint) {
     authHint.textContent = st.basicAuthPasswordSet
-      ? '管理密码已设置（接口不回传明文）。留空保存表示不修改；填写则更新密码。客户端 WS 不受 Basic 影响。'
-      : '尚未设置管理密码时服务端使用默认 admin。建议启用认证后立即修改。客户端 WS 不受 Basic 影响。';
+      ? '管理密码已哈希存储（接口不回传）。留空保存表示不修改；填写则更新并重新哈希。客户端 WS 不受 Basic 影响。'
+      : '尚未设置管理密码时服务端使用默认 admin（已哈希）。建议启用认证后立即修改。';
+  }
+  const defBanner = $('#defaultPasswordBanner');
+  if (defBanner) {
+    if (st.basicAuthEnable && st.basicAuthUsingDefault) {
+      defBanner.hidden = false;
+      defBanner.textContent =
+        '正在使用默认管理密码 admin，存在安全风险。请在下方修改密码后保存。';
+    } else {
+      defBanner.hidden = true;
+    }
   }
   applyGlobalSettingsLock(st);
 }
@@ -249,130 +244,21 @@ $('#btnClearMQTTLogs').onclick = async () => {
   }
 };
 
-function deviceCard(d) {
-  const el = document.createElement('div');
-  el.className = 'device';
-  const S = window.WakeHubStatus || {};
-  const badges = S.statusBadgesHTML ? S.statusBadgesHTML(d) : '';
-  const nicHint = d.preferredNic ? ` · 网卡 ${escapeHtml(d.preferredNic)}` : '';
-  const verHint = d.clientVersion ? ` · 客户端 v${escapeHtml(d.clientVersion)}` : '';
-  const lastEv = S.formatClientEvent ? S.formatClientEvent(d) : '';
-  const lastEvHTML = lastEv
-    ? `<div class="meta event-line">最近客户端事件：${escapeHtml(lastEv)}</div>`
-    : '';
-  el.innerHTML = `
-    <div class="device-head">
-      <div>
-        <h3 class="device-title">
-          <input type="checkbox" class="device-select" data-id="${escapeHtml(d.id)}" />
-          ${escapeHtml(d.name)}
-        </h3>
-        <div class="meta">MAC ${escapeHtml(d.mac)}${nicHint}${verHint}</div>
-      </div>
-      <div class="badges">${badges}</div>
-    </div>
-    <div class="meta">广播 ${escapeHtml(d.broadcast || '自动')} · WOL ${d.port || 9} · 重复 ${d.repeat || 3}</div>
-    <div class="meta">探测 ${escapeHtml(d.probeMethod || 'off')}${d.probeHost ? ' @ ' + escapeHtml(d.probeHost) : ''}${d.probeMethod === 'tcp' ? ':' + (d.probePort || 3389) : ''} · 绑定 ${escapeHtml(d.boundClientKey || '—')}</div>
-    ${lastEvHTML}
-    <div class="actions">
-      <button class="btn btn-wake" data-act="wake" type="button">唤醒</button>
-      <button class="btn btn-shutdown" data-act="shutdown" type="button" ${d.clientOnline ? '' : 'title="需要客户端在线"'}>关机</button>
-      <button class="btn btn-utility" data-act="probe" type="button">探测</button>
-      <button class="btn btn-utility" data-act="edit" type="button">编辑</button>
-      <button class="btn btn-danger" data-act="del" type="button">删除</button>
-    </div>
-    <p class="actmsg"></p>
-  `;
-  el.querySelector('[data-act=wake]').onclick = async () => {
-    const msg = el.querySelector('.actmsg');
-    try {
-      await api('/api/devices/' + d.id + '/wake', { method: 'POST', body: '{}' });
-      msg.className = 'ok actmsg';
-      msg.textContent = '已发送唤醒';
-    } catch (e) {
-      msg.className = 'error actmsg';
-      msg.textContent = e.message;
-    }
-  };
-  el.querySelector('[data-act=shutdown]').onclick = async () => {
-    const msg = el.querySelector('.actmsg');
-    const name = d.name || d.id || '该设备';
-    if (!d.clientOnline) {
-      msg.className = 'error actmsg';
-      msg.textContent = '客户端离线，无法远程关机（请看「客户端」徽章）';
-      return;
-    }
-    if (!confirm(`确认向「${name}」发送关机指令？\n\n设备将立即关机（需客户端在线）。`)) {
-      msg.className = 'actmsg muted';
-      msg.textContent = '已取消关机';
-      return;
-    }
-    if (!confirm(`最后确认：立即关闭「${name}」？`)) {
-      msg.className = 'actmsg muted';
-      msg.textContent = '已取消关机';
-      return;
-    }
-    try {
-      await api('/api/devices/' + d.id + '/shutdown', { method: 'POST', body: '{}' });
-      msg.className = 'ok actmsg';
-      msg.textContent = '已下发关机（客户端会先 ACK 再执行）';
-      // Refresh shortly to pick up clientLastEvent
-      setTimeout(() => loadDevices(), 800);
-    } catch (e) {
-      msg.className = 'error actmsg';
-      msg.textContent = e.message;
-    }
-  };
-  el.querySelector('[data-act=probe]').onclick = async () => {
-    const msg = el.querySelector('.actmsg');
-    try {
-      const res = await api('/api/devices/' + d.id + '/probe', { method: 'POST', body: '{}' });
-      const p = res.probe || {};
-      msg.className = p.online ? 'ok actmsg' : 'error actmsg';
-      msg.textContent = p.online
-        ? `探测在线 ${p.target || ''} ${p.latencyMs != null ? p.latencyMs + 'ms' : ''}`
-        : `探测离线 ${p.error || ''}`;
-      loadDevices();
-    } catch (e) {
-      msg.className = 'error actmsg';
-      msg.textContent = e.message;
-    }
-  };
-  el.querySelector('[data-act=edit]').onclick = () => openDeviceDialog(d);
-  el.querySelector('[data-act=del]').onclick = async () => {
-    if (!confirm('删除设备 ' + d.name + ' ?')) return;
-    await api('/api/devices/' + d.id, { method: 'DELETE' });
-    loadDevices();
-  };
-  return el;
-}
+// deviceCard / loadDevices / batchAction → devices.js
 
-function selectedDeviceIds() {
-  return $$('#deviceList .device-select:checked').map((el) => el.dataset.id).filter(Boolean);
-}
-
-async function batchAction(action) {
-  const ids = selectedDeviceIds();
-  if (!ids.length) {
-    alert('请先勾选设备');
-    return;
+async function ensureDevicesCache() {
+  let list = typeof getCachedDevices === 'function' ? getCachedDevices() : [];
+  if (!list.length) {
+    try {
+      list = (await api('/api/devices')).list || [];
+      if (typeof getCachedDevices === 'function') {
+        // devices.js owns cache; loadDevices refreshes it
+        await loadDevices();
+        list = getCachedDevices();
+      }
+    } catch (_) {}
   }
-  if (action === 'shutdown') {
-    if (!confirm(`确认对 ${ids.length} 台设备发送关机？`)) return;
-    if (!confirm('最后确认批量关机？')) return;
-  }
-  try {
-    const res = await api('/api/batch', {
-      method: 'POST',
-      body: JSON.stringify({ action, ids }),
-    });
-    const results = res.results || {};
-    const fail = Object.entries(results).filter(([, v]) => v !== 'ok');
-    alert(fail.length ? `完成，失败 ${fail.length} 台` : `已对 ${ids.length} 台执行 ${action}`);
-    loadDevices();
-  } catch (e) {
-    alert(e.message);
-  }
+  return list;
 }
 
 function fillNicPick(d = {}) {
@@ -717,43 +603,16 @@ document.querySelectorAll('.btn-copy').forEach((btn) => {
   });
 });
 
-function escapeHtml(s) {
-  return String(s ?? '').replace(
-    /[&<>"']/g,
-    (c) =>
-      ({
-        '&': '&amp;',
-        '<': '&lt;',
-        '>': '&gt;',
-        '"': '&quot;',
-        "'": '&#39;',
-      })[c]
-  );
-}
-
-let cachedDevices = [];
-
-async function loadDevices() {
-  const data = await api('/api/devices');
-  cachedDevices = data.list || [];
-  const box = $('#deviceList');
-  box.innerHTML = '';
-  cachedDevices.forEach((d) => box.appendChild(deviceCard(d)));
-  if (!cachedDevices.length) {
-    box.innerHTML = '<p class="empty muted">暂无设备，点击「添加设备」开始</p>';
-  }
-  refreshStatus();
-}
-
 async function loadGroups() {
   const data = await api('/api/groups');
   const box = $('#groupList');
   box.innerHTML = '';
+  const devices = typeof getCachedDevices === 'function' ? getCachedDevices() : [];
   (data.list || []).forEach((g) => {
     const el = document.createElement('div');
     el.className = 'device';
     const names = (g.deviceIds || [])
-      .map((id) => cachedDevices.find((d) => d.id === id)?.name || id)
+      .map((id) => devices.find((d) => d.id === id)?.name || id)
       .join('、');
     el.innerHTML = `
       <div class="device-head">
@@ -805,18 +664,13 @@ async function loadGroups() {
 }
 
 async function openGroupDialog(g = {}) {
-  if (!cachedDevices.length) {
-    try {
-      const data = await api('/api/devices');
-      cachedDevices = data.list || [];
-    } catch (_) {}
-  }
+  const devices = await ensureDevicesCache();
   const f = $('#groupForm');
   f.id.value = g.id || '';
   f.name.value = g.name || '';
   const box = $('#groupDeviceChecks');
   const selected = new Set(g.deviceIds || []);
-  box.innerHTML = cachedDevices
+  box.innerHTML = devices
     .map(
       (d) =>
         `<label class="check"><input type="checkbox" value="${escapeHtml(d.id)}" ${
@@ -824,7 +678,7 @@ async function openGroupDialog(g = {}) {
         }/><span>${escapeHtml(d.name)}</span></label>`
     )
     .join('');
-  if (!cachedDevices.length) box.innerHTML = '<p class="muted">暂无设备</p>';
+  if (!devices.length) box.innerHTML = '<p class="muted">暂无设备</p>';
   $('#groupDialogTitle').textContent = g.id ? '编辑分组' : '新建分组';
   $('#groupFormError').textContent = '';
   $('#groupDialog').showModal();
@@ -859,12 +713,7 @@ $('#groupForm')?.addEventListener('submit', async (ev) => {
 const WD_LABEL = { 0: '日', 1: '一', 2: '二', 3: '三', 4: '四', 5: '五', 6: '六' };
 
 async function loadSchedules() {
-  if (!cachedDevices.length) {
-    try {
-      const data = await api('/api/devices');
-      cachedDevices = data.list || [];
-    } catch (_) {}
-  }
+  const devices = await ensureDevicesCache();
   let groups = [];
   try {
     groups = (await api('/api/groups')).list || [];
@@ -877,7 +726,7 @@ async function loadSchedules() {
     el.className = 'device';
     let target = sc.deviceId || sc.groupId || '—';
     if (sc.deviceId) {
-      target = cachedDevices.find((d) => d.id === sc.deviceId)?.name || sc.deviceId;
+      target = devices.find((d) => d.id === sc.deviceId)?.name || sc.deviceId;
     } else if (sc.groupId) {
       target = groups.find((g) => g.id === sc.groupId)?.name || sc.groupId;
     }
@@ -926,10 +775,8 @@ async function fillScheduleTargets(type, selected) {
       sel.appendChild(o);
     });
   } else {
-    if (!cachedDevices.length) {
-      cachedDevices = (await api('/api/devices')).list || [];
-    }
-    cachedDevices.forEach((d) => {
+    const devices = await ensureDevicesCache();
+    devices.forEach((d) => {
       const o = document.createElement('option');
       o.value = d.id;
       o.textContent = d.name;
@@ -1004,8 +851,10 @@ showTab('devices');
 loadDevices();
 loadSettings();
 loadDiscover();
-setInterval(refreshStatus, 10000);
+// Single refresh ticker for status + active tab content.
 setInterval(() => {
-  if (activeTab() === 'mqtt') loadMQTT();
-  if (activeTab() === 'devices') loadDevices();
-}, 15000);
+  refreshStatus();
+  const tab = activeTab();
+  if (tab === 'mqtt') loadMQTT();
+  if (tab === 'devices') loadDevices();
+}, 12000);

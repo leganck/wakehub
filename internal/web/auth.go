@@ -1,7 +1,6 @@
 package web
 
 import (
-	"crypto/subtle"
 	"net/http"
 
 	"github.com/leganck/wakehub/internal/config"
@@ -29,12 +28,9 @@ func (s *Server) withBasicAuth(h http.Handler) http.Handler {
 		if user == "" {
 			user = config.DefaultAuthUser
 		}
-		pass := st.BasicAuthPassword
-		if pass == "" {
-			pass = config.DefaultAuthPassword
-		}
+		passHash := st.BasicAuthPassword
 		u, p, ok := r.BasicAuth()
-		if !ok || !secureEqual(u, user) || !secureEqual(p, pass) {
+		if !ok || !secureEqual(u, user) || !config.CheckPassword(passHash, p) {
 			w.Header().Set("WWW-Authenticate", `Basic realm="WakeHub", charset="UTF-8"`)
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
@@ -44,11 +40,12 @@ func (s *Server) withBasicAuth(h http.Handler) http.Handler {
 }
 
 func secureEqual(a, b string) bool {
-	// Constant-time compare; pad via equal length check first
 	if len(a) != len(b) {
-		// still compare against self to reduce timing signal on length
-		subtle.ConstantTimeCompare([]byte(a), []byte(a))
 		return false
 	}
-	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
+	var v byte
+	for i := 0; i < len(a); i++ {
+		v |= a[i] ^ b[i]
+	}
+	return v == 0
 }

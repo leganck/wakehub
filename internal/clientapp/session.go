@@ -14,7 +14,8 @@ import (
 
 // Session dials the server, runs hello + read loop until disconnect or ctx cancel.
 // authed is true after a successful hello_ok.
-func Session(ctx context.Context, server, token, key, hostname, shutdownCmd, version string) (authed bool, err error) {
+// shutdownCmd / restartCmd are local shell lines for host control.
+func Session(ctx context.Context, server, token, key, hostname, shutdownCmd, restartCmd, version string) (authed bool, err error) {
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
@@ -92,7 +93,13 @@ func Session(ctx context.Context, server, token, key, hostname, shutdownCmd, ver
 			}
 			switch m["type"] {
 			case protocol.TypeShutdown:
-				HandleShutdownMsg(m, shutdownCmd, writeJSON)
+				HandleControlMsg(m, "shutdown", shutdownCmd, writeJSON)
+			case protocol.TypeRestart:
+				cmd := restartCmd
+				if cmd == "" {
+					cmd = DefaultRestartCmd()
+				}
+				HandleControlMsg(m, "restart", cmd, writeJSON)
 			case protocol.TypePong:
 			case protocol.TypeError:
 				log.Printf("server error message: %s", string(data))

@@ -477,6 +477,44 @@ main {
   }
 }
 
+.toast-host {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: min(360px, calc(100vw - 32px));
+  pointer-events: none;
+}
+
+.toast {
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  background: var(--ink);
+  color: #fff;
+  font-size: 14px;
+  box-shadow: var(--shadow-dialog);
+  opacity: 1;
+  transition: opacity 0.25s ease;
+}
+
+.toast-ok { background: var(--ok); }
+.toast-error { background: var(--bad); }
+.toast-info { background: #333; }
+.toast-out { opacity: 0; }
+
+.settings-banner.warn {
+  background: color-mix(in srgb, #ff9500 12%, white);
+  border: 1px solid color-mix(in srgb, #ff9500 40%, white);
+  color: #8a4b00;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-sm);
+  font-size: 14px;
+}
+
 .actions {
   display: flex;
   flex-wrap: wrap;

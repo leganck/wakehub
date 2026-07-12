@@ -286,11 +286,12 @@ func runUpdate(args []string) int {
 
 Usage:
   %s update check [-repo owner/name]
-  %s update apply [-repo owner/name]
+  %s update apply [-repo owner/name] [-service]
 
 Notes:
   - default repo: %s
-  - apply replaces this executable; stop the Windows service first if it locks the file
+  - apply replaces this executable
+  - -service: stop system service, apply, then start (recommended on Windows)
   - set WAKEHUB_RELEASE_REPO to override the default repo
 `, exe, exe, clientapp.DefaultReleaseRepo)
 		if len(args) == 0 {
@@ -302,6 +303,7 @@ Notes:
 	fs := flag.NewFlagSet("update", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	repo := fs.String("repo", envOr("WAKEHUB_RELEASE_REPO", clientapp.DefaultReleaseRepo), "GitHub owner/name")
+	withService := fs.Bool("service", false, "stop system service before apply and start after")
 	rest := args[1:]
 	if err := fs.Parse(rest); err != nil {
 		return 2
@@ -340,11 +342,23 @@ Notes:
 			fmt.Println("already up to date")
 			return 0
 		}
+		if *withService {
+			fmt.Println("stopping service…")
+			_ = service.Stop(clientapp.DefaultServiceName)
+		}
 		if err := clientapp.ApplyUpdate(ctx, info); err != nil {
 			log.Printf("apply: %v", err)
+			if *withService {
+				_ = service.Start(clientapp.DefaultServiceName)
+			}
 			return 1
 		}
-		fmt.Printf("updated to %s — restart the client/service to use the new binary\n", info.Latest)
+		fmt.Printf("updated to %s\n", info.Latest)
+		if *withService {
+			fmt.Println("starting service…")
+			return service.Start(clientapp.DefaultServiceName)
+		}
+		fmt.Println("restart the client/service to use the new binary")
 		return 0
 	default:
 		fmt.Fprintf(os.Stderr, "unknown update subcommand %q\n", sub)

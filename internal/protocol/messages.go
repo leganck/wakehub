@@ -11,6 +11,7 @@ const (
 	TypePing         = "ping"
 	TypePong         = "pong"
 	TypeShutdown     = "shutdown"
+	TypeRestart      = "restart"
 	TypeShutdownAck  = "shutdown_ack"
 	TypeShutdownErr  = "shutdown_err"
 )
@@ -71,6 +72,12 @@ type Shutdown struct {
 	RequestID string `json:"requestId,omitempty"`
 }
 
+// Control is a generic server → client host action (shutdown/restart).
+type Control struct {
+	Type      string `json:"type"`
+	RequestID string `json:"requestId,omitempty"`
+}
+
 // ShutdownAck is client → server acceptance / completion.
 type ShutdownAck struct {
 	Type      string `json:"type"`
@@ -98,6 +105,11 @@ func NewError(code, message string) ErrorMsg {
 // NewShutdown returns a shutdown control message.
 func NewShutdown(requestID string) Shutdown {
 	return Shutdown{Type: TypeShutdown, RequestID: requestID}
+}
+
+// NewControl returns a control message (TypeShutdown or TypeRestart).
+func NewControl(typ, requestID string) Control {
+	return Control{Type: typ, RequestID: requestID}
 }
 
 // NewPong returns a pong payload.

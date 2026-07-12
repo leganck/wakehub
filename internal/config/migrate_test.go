@@ -33,8 +33,8 @@ func TestLegacyConfigMigratesBasicAuth(t *testing.T) {
 	if !st.BasicAuthEnable {
 		t.Fatal("expected basic auth enabled after migration")
 	}
-	if st.BasicAuthUser != DefaultAuthUser || st.BasicAuthPassword != DefaultAuthPassword {
-		t.Fatalf("defaults: user=%q pass=%q", st.BasicAuthUser, st.BasicAuthPassword)
+	if st.BasicAuthUser != DefaultAuthUser || !CheckPassword(st.BasicAuthPassword, DefaultAuthPassword) {
+		t.Fatalf("defaults: user=%q pass hash ok=%v", st.BasicAuthUser, CheckPassword(st.BasicAuthPassword, DefaultAuthPassword))
 	}
 	if st.Listen != ":9090" {
 		t.Fatalf("listen preserved: %q", st.Listen)
@@ -59,8 +59,8 @@ func TestLegacyConfigMigratesBasicAuth(t *testing.T) {
 	if s2.Settings().BasicAuthEnable {
 		t.Fatal("explicit disable should stick after version field exists")
 	}
-	if s2.Settings().BasicAuthPassword != "secret" {
-		t.Fatalf("password: %q", s2.Settings().BasicAuthPassword)
+	if !CheckPassword(s2.Settings().BasicAuthPassword, "secret") {
+		t.Fatalf("password not hashed/verified: %q", s2.Settings().BasicAuthPassword)
 	}
 }
 

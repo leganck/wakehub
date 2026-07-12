@@ -2,9 +2,10 @@ package device
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 
+	"github.com/leganck/wakehub/internal/audit"
 	"github.com/leganck/wakehub/internal/bemfa"
 	"github.com/leganck/wakehub/internal/clientlink"
 	"github.com/leganck/wakehub/internal/config"
@@ -15,16 +16,21 @@ import (
 
 type View struct {
 	config.Device
-	ClientOnline    bool             `json:"clientOnline"`
-	BemfaConnected  bool             `json:"bemfaConnected"` // global MQTT session
-	BoundClientNICs  []config.NICInfo `json:"boundClientNics,omitempty"`
-	BoundHostname    string           `json:"boundHostname,omitempty"`
-	ClientVersion   string           `json:"clientVersion,omitempty"`
-	ClientLastEvent string           `json:"clientLastEvent,omitempty"`
-	ClientLastError string           `json:"clientLastError,omitempty"`
-	ClientLastEventAt int64          `json:"clientLastEventAt,omitempty"`
-	ProbeOnline     *bool            `json:"probeOnline,omitempty"`
-	Probe           *probe.Result    `json:"probe,omitempty"`
+	ClientOnline      bool             `json:"clientOnline"`
+	BemfaConnected    bool             `json:"bemfaConnected"` // global MQTT session
+	BoundClientNICs    []config.NICInfo `json:"boundClientNics,omitempty"`
+	BoundHostname      string           `json:"boundHostname,omitempty"`
+	ClientVersion     string           `json:"clientVersion,omitempty"`
+	ClientLastEvent   string           `json:"clientLastEvent,omitempty"`
+	ClientLastError   string           `json:"clientLastError,omitempty"`
+	ClientLastEventAt int64            `json:"clientLastEventAt,omitempty"`
+	ProbeOnline       *bool            `json:"probeOnline,omitempty"`
+	Probe             *probe.Result    `json:"probe,omitempty"`
+}
+
+// ActionResult is returned from client-bound actions (shutdown/restart).
+type ActionResult struct {
+	RequestID string `json:"requestId,omitempty"`
 }
 
 type Service struct {
@@ -33,18 +39,25 @@ type Service struct {
 	bemfa  *bemfa.Manager
 	probe  *probe.StatusCache
 	notify *notify.Sender
+	audit  *audit.Ring
 }
 
 func NewService(store *config.Store, hub *clientlink.Hub) *Service {
-	s := &Service{store: store, hub: hub, probe: probe.NewStatusCache()}
+	s := &Service{
+		store: store,
+		hub:   hub,
+		probe: probe.NewStatusCache(),
+		audit: audit.New(200),
+	}
 	s.bemfa = bemfa.NewManager(s.onBemfaPower)
 	s.notify = notify.New(store)
 	return s
 }
 
-func (s *Service) Bemfa() *bemfa.Manager       { return s.bemfa }
-func (s *Service) ProbeCache() *probe.StatusCache { return s.probe }
-func (s *Service) Notify() *notify.Sender       { return s.notify }
+func (s *Service) Bemfa() *bemfa.Manager           { return s.bemfa }
+func (s *Service) ProbeCache() *probe.StatusCache  { return s.probe }
+func (s *Service) Notify() *notify.Sender          { return s.notify }
+func (s *Service) Audit() *audit.Ring              { return s.audit }
 
 func (s *Service) StartBemfa() error {
 	snap := s.store.Snapshot()
@@ -54,21 +67,21 @@ func (s *Service) StartBemfa() error {
 func (s *Service) onBemfaPower(deviceID string, on bool) {
 	d, ok := s.store.GetDevice(deviceID)
 	if !ok {
-		log.Printf("bemfa power for unknown device %s", deviceID)
+		slog.Warn("bemfa power for unknown device", "id", deviceID)
 		return
 	}
 	if on {
 		if err := s.Wake(d.ID); err != nil {
-			log.Printf("bemfa wake %s: %v", d.Name, err)
+			slog.Error("bemfa wake failed", "device", d.Name, "err", err)
 		} else {
-			log.Printf("bemfa wake ok: %s", d.Name)
+			slog.Info("bemfa wake ok", "device", d.Name)
 		}
 		return
 	}
-	if err := s.Shutdown(d.ID); err != nil {
-		log.Printf("bemfa shutdown %s: %v", d.Name, err)
+	if _, err := s.Shutdown(d.ID); err != nil {
+		slog.Error("bemfa shutdown failed", "device", d.Name, "err", err)
 	} else {
-		log.Printf("bemfa shutdown ok: %s", d.Name)
+		slog.Info("bemfa shutdown ok", "device", d.Name)
 	}
 }
 
@@ -172,12 +185,22 @@ func (s *Service) Delete(id string) error {
 	return s.store.DeleteDevice(id)
 }
 
+func (s *Service) record(ev audit.Entry) {
+	if s.audit != nil {
+		s.audit.Add(ev)
+	}
+}
+
 func (s *Service) Wake(id string) error {
 	d, ok := s.store.GetDevice(id)
 	if !ok {
 		return fmt.Errorf("device not found")
 	}
 	err := wol.Wake(d.MAC, d.Broadcast, d.Port, d.Repeat)
+	s.record(audit.Entry{
+		Event: "wake", DeviceID: d.ID, DeviceName: d.Name,
+		OK: err == nil, Error: errString(err),
+	})
 	if s.notify != nil {
 		s.notify.Send(notify.Event{
 			Event: "wake", DeviceID: d.ID, DeviceName: d.Name,
@@ -187,29 +210,39 @@ func (s *Service) Wake(id string) error {
 	return err
 }
 
-func (s *Service) Shutdown(id string) error {
+func (s *Service) Shutdown(id string) (ActionResult, error) {
+	return s.clientAction(id, "shutdown", s.hub.Shutdown)
+}
+
+func (s *Service) Restart(id string) (ActionResult, error) {
+	return s.clientAction(id, "restart", s.hub.Restart)
+}
+
+func (s *Service) clientAction(id, event string, send func(string) (string, error)) (ActionResult, error) {
 	d, ok := s.store.GetDevice(id)
 	if !ok {
-		return fmt.Errorf("device not found")
+		return ActionResult{}, fmt.Errorf("device not found")
 	}
 	if d.BoundClientKey == "" {
 		err := fmt.Errorf("device has no bound client")
+		s.record(audit.Entry{Event: event, DeviceID: d.ID, DeviceName: d.Name, OK: false, Error: err.Error()})
 		if s.notify != nil {
-			s.notify.Send(notify.Event{
-				Event: "shutdown", DeviceID: d.ID, DeviceName: d.Name,
-				OK: false, Error: err.Error(),
-			})
+			s.notify.Send(notify.Event{Event: event, DeviceID: d.ID, DeviceName: d.Name, OK: false, Error: err.Error()})
 		}
-		return err
+		return ActionResult{}, err
 	}
-	err := s.hub.Shutdown(d.BoundClientKey)
+	reqID, err := send(d.BoundClientKey)
+	s.record(audit.Entry{
+		Event: event, DeviceID: d.ID, DeviceName: d.Name,
+		OK: err == nil, Error: errString(err), RequestID: reqID,
+	})
 	if s.notify != nil {
 		s.notify.Send(notify.Event{
-			Event: "shutdown", DeviceID: d.ID, DeviceName: d.Name,
+			Event: event, DeviceID: d.ID, DeviceName: d.Name,
 			OK: err == nil, Error: errString(err),
 		})
 	}
-	return err
+	return ActionResult{RequestID: reqID}, err
 }
 
 func (s *Service) Batch(action string, ids []string) map[string]string {
@@ -220,7 +253,9 @@ func (s *Service) Batch(action string, ids []string) map[string]string {
 		case "wake":
 			err = s.Wake(id)
 		case "shutdown":
-			err = s.Shutdown(id)
+			_, err = s.Shutdown(id)
+		case "restart":
+			_, err = s.Restart(id)
 		default:
 			err = fmt.Errorf("unknown action")
 		}
@@ -280,6 +315,10 @@ func (s *Service) OnProbeChange(prev, cur probe.Result) {
 }
 
 func (s *Service) OnSchedule(action, targetType, targetID, targetName string, ok bool, errMsg string) {
+	s.record(audit.Entry{
+		Event: "schedule", DeviceID: targetID, DeviceName: targetName,
+		OK: ok, Error: errMsg, Detail: action + " " + targetType,
+	})
 	if s.notify == nil {
 		return
 	}

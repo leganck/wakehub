@@ -3,6 +3,7 @@ package web
 import (
 	"net/http"
 	"runtime"
+	"strconv"
 	"time"
 )
 
@@ -39,6 +40,24 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 		"devices": len(s.store.ListDevices()),
 		"clients": len(s.hub.List()),
 	})
+}
+
+func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, 405, map[string]any{"error": "method not allowed"})
+		return
+	}
+	limit := 50
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	var list any
+	if s.devices != nil && s.devices.Audit() != nil {
+		list = s.devices.Audit().List(limit)
+	}
+	writeJSON(w, 200, map[string]any{"list": list})
 }
 
 func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {

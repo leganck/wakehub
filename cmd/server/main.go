@@ -71,7 +71,7 @@ func main() {
 
 	prober := probe.NewRunner(store, svc.ProbeCache(), svc.NICsForProbe, svc.OnProbeChange)
 	go prober.Run(ctx)
-	sched := schedule.New(store, svc, scheduleNote{svc: svc})
+	sched := schedule.New(store, device.ScheduleActor{S: svc}, scheduleNote{svc: svc})
 	go sched.Run(ctx)
 
 	api := webserver.New(store, svc, hub, browser)

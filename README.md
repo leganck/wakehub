@@ -118,18 +118,29 @@ docker compose -f deploy/docker-compose.macvlan.yml up -d --build
 - `POST /api/batch` · `POST /api/devices/from-client`
 - `GET/POST /api/groups` · `PUT/DELETE /api/groups/{id}` · `POST .../wake|shutdown`
 - `GET/POST /api/schedules` · `PUT/DELETE /api/schedules/{id}`
-- `GET /api/clients` · `GET /api/discover`
+- `GET /api/clients` · `GET /api/discover` · `GET /api/audit`
 - `GET /api/mqtt` · `GET|DELETE /api/mqtt/logs`
+- `POST /api/devices/{id}/restart`
 - `WS /api/ws/client`（消息 schema：`internal/protocol`）
+
+Basic 管理密码以 **bcrypt** 存入 `config.json`（加载时自动迁移明文）。
 
 ### 客户端自更新
 
 ```bash
 wakehub-client update check
-wakehub-client update apply          # 从 GitHub Releases 下载并替换当前二进制
+wakehub-client update apply -service   # 停服务 → 替换二进制 → 再启动
 # 可选: -repo owner/name  或环境变量 WAKEHUB_RELEASE_REPO
-# Windows 服务占用 exe 时请先: service stop，再 apply，再 service start
 ```
+
+### 状态语义（设备卡片）
+
+| 徽章 | 含义 |
+|------|------|
+| 客户端 在线/离线 | WebSocket 客户端是否连接（远程关机/重启前提） |
+| 探测 在线/离线/关 | TCP/ICMP 探测，与客户端独立 |
+| 巴法 已连/开·未连/关 | 设备启用巴法 + 全局 MQTT 是否连接 |
+
 
 ## OpenWrt
 

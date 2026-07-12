@@ -97,7 +97,8 @@ type Settings struct {
 }
 
 // CurrentConfigVersion is written into config files after migrations.
-const CurrentConfigVersion = 1
+// v2: basic auth passwords stored as bcrypt hashes.
+const CurrentConfigVersion = 2
 
 type File struct {
 	Version   int        `json:"version,omitempty"`
@@ -114,6 +115,11 @@ type Store struct {
 }
 
 func DefaultFile() File {
+	hash, err := HashPassword(DefaultAuthPassword)
+	if err != nil {
+		// Extremely unlikely; fall back to plain and let normalize re-hash.
+		hash = DefaultAuthPassword
+	}
 	return File{
 		Version: CurrentConfigVersion,
 		Settings: Settings{
@@ -121,7 +127,7 @@ func DefaultFile() File {
 			WSPath:            DefaultWSPath,
 			BasicAuthEnable:   true,
 			BasicAuthUser:     DefaultAuthUser,
-			BasicAuthPassword: DefaultAuthPassword,
+			BasicAuthPassword: hash,
 		},
 		Devices:   []Device{},
 		Groups:    []Group{},
@@ -165,7 +171,9 @@ func Open(path string) (*Store, error) {
 			migrated = true
 		}
 	}
-	s.normalize()
+	if s.normalize() {
+		migrated = true
+	}
 	if s.data.Version < CurrentConfigVersion {
 		s.data.Version = CurrentConfigVersion
 		migrated = true
@@ -203,7 +211,9 @@ func backupConfigFile(path string) error {
 	return os.WriteFile(path+".bak", b, 0o644)
 }
 
-func (s *Store) normalize() {
+// normalize fills defaults and migrates legacy plaintext passwords.
+// Returns true if the in-memory config should be persisted.
+func (s *Store) normalize() (dirty bool) {
 	if s.data.Settings.Listen == "" {
 		s.data.Settings.Listen = DefaultListen
 	}
@@ -214,7 +224,14 @@ func (s *Store) normalize() {
 		s.data.Settings.BasicAuthUser = DefaultAuthUser
 	}
 	if strings.TrimSpace(s.data.Settings.BasicAuthPassword) == "" {
-		s.data.Settings.BasicAuthPassword = DefaultAuthPassword
+		if h, err := HashPassword(DefaultAuthPassword); err == nil {
+			s.data.Settings.BasicAuthPassword = h
+		} else {
+			s.data.Settings.BasicAuthPassword = DefaultAuthPassword
+		}
+		dirty = true
+	} else if ch, err := EnsurePasswordHashed(&s.data.Settings.BasicAuthPassword); err == nil && ch {
+		dirty = true
 	}
 	if s.data.Devices == nil {
 		s.data.Devices = []Device{}
@@ -231,6 +248,7 @@ func (s *Store) normalize() {
 	for i := range s.data.Schedules {
 		normalizeScheduleFields(&s.data.Schedules[i])
 	}
+	return dirty
 }
 
 func normalizeDeviceFields(d *Device) {
@@ -304,10 +322,15 @@ func (s *Store) UpdateSettings(fn func(*Settings) error) error {
 	if strings.TrimSpace(s.data.Settings.BasicAuthUser) == "" {
 		s.data.Settings.BasicAuthUser = DefaultAuthUser
 	}
-	// Do not force-default password here: empty may mean "leave unchanged" on API update.
-	// Missing password is filled in normalize() after load / migration.
+	// Empty password should not remain empty; re-hash default if cleared.
 	if strings.TrimSpace(s.data.Settings.BasicAuthPassword) == "" {
-		s.data.Settings.BasicAuthPassword = DefaultAuthPassword
+		if h, err := HashPassword(DefaultAuthPassword); err == nil {
+			s.data.Settings.BasicAuthPassword = h
+		} else {
+			s.data.Settings.BasicAuthPassword = DefaultAuthPassword
+		}
+	} else if _, err := EnsurePasswordHashed(&s.data.Settings.BasicAuthPassword); err != nil {
+		return err
 	}
 	return s.saveLocked()
 }
@@ -335,6 +358,7 @@ func (st Settings) Public() map[string]any {
 		"basicAuthEnable":        st.BasicAuthEnable,
 		"basicAuthUser":          st.BasicAuthUser,
 		"basicAuthPasswordSet":   strings.TrimSpace(st.BasicAuthPassword) != "",
+		"basicAuthUsingDefault":  IsDefaultPassword(st.BasicAuthPassword),
 		"globalManagedByLuci":    st.GlobalManagedByLuci,
 		"webGlobalMode":          mode,
 		"globalSettingsWritable": st.GlobalsWritable(),

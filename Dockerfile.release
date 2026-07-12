@@ -7,4 +7,6 @@ RUN mkdir -p /app/data && chown -R wakehub:wakehub /app
 USER wakehub
 EXPOSE 8080
 VOLUME ["/app/data"]
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD wget -qO- http://127.0.0.1:8080/healthz >/dev/null || exit 1
 ENTRYPOINT ["/app/wakehub-server", "-config", "/app/data/config.json", "-listen", ":8080"]

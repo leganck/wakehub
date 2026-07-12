@@ -26,5 +26,12 @@ services:
       - ./data:/app/data
     environment:
       - TZ=${TZ:-Asia/Shanghai}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
     # Linux 同网段唤醒可选：取消注释下一行并注释掉 ports
     # network_mode: host
+    # 容器以非 root 用户 wakehub (uid 10001) 运行，见 Dockerfile

@@ -59,6 +59,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/schedules", s.handleSchedules)
 	s.mux.HandleFunc("/api/schedules/", s.handleScheduleSub)
 	s.mux.HandleFunc("/api/batch", s.handleBatch)
+	s.mux.HandleFunc("/api/audit", s.handleAudit)
 
 	settings := s.store.Settings()
 	wsPath := settings.WSPath
@@ -188,8 +189,13 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 			st.BasicAuthEnable = body.BasicAuthEnable
 			st.BasicAuthUser = strings.TrimSpace(body.BasicAuthUser)
 			// Empty password means "keep existing" (UI never echoes password back).
+			// Non-empty values are hashed before persistence.
 			if pw := strings.TrimSpace(body.BasicAuthPassword); pw != "" {
-				st.BasicAuthPassword = pw
+				hash, err := config.HashPassword(pw)
+				if err != nil {
+					return err
+				}
+				st.BasicAuthPassword = hash
 			}
 			st.NotifyWebhook = strings.TrimSpace(body.NotifyWebhook)
 			st.NotifyOnWake = body.NotifyOnWake
@@ -312,11 +318,23 @@ func (s *Server) handleDeviceSub(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 405, map[string]any{"error": "method not allowed"})
 			return
 		}
-		if err := s.devices.Shutdown(id); err != nil {
+		res, err := s.devices.Shutdown(id)
+		if err != nil {
 			writeJSON(w, 400, map[string]any{"error": err.Error()})
 			return
 		}
-		writeJSON(w, 200, map[string]any{"ok": true})
+		writeJSON(w, 200, map[string]any{"ok": true, "requestId": res.RequestID})
+	case "restart":
+		if r.Method != http.MethodPost {
+			writeJSON(w, 405, map[string]any{"error": "method not allowed"})
+			return
+		}
+		res, err := s.devices.Restart(id)
+		if err != nil {
+			writeJSON(w, 400, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, 200, map[string]any{"ok": true, "requestId": res.RequestID})
 	case "probe":
 		if r.Method != http.MethodPost {
 			writeJSON(w, 405, map[string]any{"error": "method not allowed"})

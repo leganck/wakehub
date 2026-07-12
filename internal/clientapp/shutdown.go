@@ -11,13 +11,18 @@ import (
 // recentShutdownIDs dedupes remote shutdown requests (process-local).
 var recentShutdownIDs sync.Map // requestId -> time.Time
 
-// HandleShutdownMsg processes a server shutdown control message.
-// writeJSON must be concurrency-safe.
+// HandleShutdownMsg is an alias for power-off control messages.
 func HandleShutdownMsg(m map[string]any, shutdownCmd string, writeJSON func(any) error) {
+	HandleControlMsg(m, "shutdown", shutdownCmd, writeJSON)
+}
+
+// HandleControlMsg processes shutdown/restart control messages.
+// writeJSON must be concurrency-safe. action is for logging only.
+func HandleControlMsg(m map[string]any, action, cmd string, writeJSON func(any) error) {
 	reqID, _ := m["requestId"].(string)
 	if reqID != "" {
 		if _, loaded := recentShutdownIDs.LoadOrStore(reqID, time.Now()); loaded {
-			log.Printf("duplicate shutdown requestId=%s ignored", reqID)
+			log.Printf("duplicate %s requestId=%s ignored", action, reqID)
 			_ = writeJSON(protocol.ShutdownAck{
 				Type: protocol.TypeShutdownAck, OK: true,
 				Status: protocol.StatusDuplicate, RequestID: reqID,
@@ -27,19 +32,19 @@ func HandleShutdownMsg(m map[string]any, shutdownCmd string, writeJSON func(any)
 		go pruneShutdownIDs()
 	}
 
-	// ACK first so the server records acceptance before the host powers off.
+	// ACK first so the server records acceptance before the host reboots/powers off.
 	if err := writeJSON(protocol.ShutdownAck{
 		Type: protocol.TypeShutdownAck, OK: true,
 		Status: protocol.StatusAccepted, RequestID: reqID,
 	}); err != nil {
-		log.Printf("send shutdown accepted: %v", err)
+		log.Printf("send %s accepted: %v", action, err)
 	}
 
-	log.Printf("exec shutdown requestId=%s cmd=%s", reqID, shutdownCmd)
+	log.Printf("exec %s requestId=%s cmd=%s", action, reqID, cmd)
 	go func() {
-		err := CommandRunner(shutdownCmd)
+		err := CommandRunner(cmd)
 		if err != nil {
-			log.Printf("shutdown error requestId=%s: %v", reqID, err)
+			log.Printf("%s error requestId=%s: %v", action, reqID, err)
 			if werr := writeJSON(protocol.ShutdownErr{
 				Type: protocol.TypeShutdownErr, OK: false,
 				Error: err.Error(), RequestID: reqID,
@@ -48,12 +53,12 @@ func HandleShutdownMsg(m map[string]any, shutdownCmd string, writeJSON func(any)
 			}
 			return
 		}
-		log.Printf("shutdown command started ok requestId=%s", reqID)
+		log.Printf("%s command started ok requestId=%s", action, reqID)
 		if werr := writeJSON(protocol.ShutdownAck{
 			Type: protocol.TypeShutdownAck, OK: true,
 			Status: protocol.StatusExecuted, RequestID: reqID,
 		}); werr != nil {
-			log.Printf("send shutdown executed: %v", werr)
+			log.Printf("send executed: %v", werr)
 		}
 	}()
 }

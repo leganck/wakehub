@@ -79,8 +79,12 @@ func TestHubTokenAndShutdown(t *testing.T) {
 		}
 		done <- string(m)
 	}()
-	if err := hub.Shutdown("pc1"); err != nil {
+	reqID, err := hub.Shutdown("pc1")
+	if err != nil {
 		t.Fatal(err)
+	}
+	if reqID == "" {
+		t.Fatal("empty requestId")
 	}
 	got := <-done
 	if !strings.Contains(got, "shutdown") || !strings.Contains(got, "requestId") {

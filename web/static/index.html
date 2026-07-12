@@ -5,7 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>WakeHub</title>
   <link rel="stylesheet" href="/style.css" />
+  <script src="/api.js" defer></script>
   <script src="/status.js" defer></script>
+  <script src="/devices.js" defer></script>
   <script src="/app.js" defer></script>
 </head>
 <body>
@@ -83,7 +85,7 @@
         <div class="section-head">
           <div>
             <h2>定时任务</h2>
-            <p class="section-desc">按本地时间定时唤醒或关机（设备或分组）</p>
+            <p class="section-desc">按<strong>服务器本地时区</strong>定时唤醒或关机（Docker 请设 TZ，如 Asia/Shanghai）</p>
           </div>
           <div class="section-actions">
             <button id="btnRefreshSchedules" class="btn btn-secondary" type="button">刷新</button>
@@ -167,6 +169,7 @@
           </div>
         </div>
         <div id="globalSettingsBanner" class="settings-banner" hidden></div>
+        <div id="defaultPasswordBanner" class="settings-banner warn" hidden></div>
         <form id="settingsForm" class="card form-card">
           <label class="field">
             <span class="field-label">监听地址</span>
