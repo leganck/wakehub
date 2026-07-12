@@ -8,6 +8,15 @@ set -euo pipefail
 PKG_ROOT="${1:?package root required}"
 OUT_IPK="${2:?output ipk path required}"
 
+# Resolve paths before any cd (ar runs from a temp workdir).
+PKG_ROOT="$(cd "$PKG_ROOT" && pwd)"
+OUT_DIR="$(cd "$(dirname "$OUT_IPK")" 2>/dev/null && pwd || true)"
+if [[ -z "$OUT_DIR" ]]; then
+  mkdir -p "$(dirname "$OUT_IPK")"
+  OUT_DIR="$(cd "$(dirname "$OUT_IPK")" && pwd)"
+fi
+OUT_IPK="${OUT_DIR}/$(basename "$OUT_IPK")"
+
 if [[ ! -d "$PKG_ROOT/CONTROL" ]]; then
   echo "missing CONTROL/ in $PKG_ROOT" >&2
   exit 1
@@ -46,17 +55,15 @@ tar --format=gnu --owner=0 --group=0 --numeric-owner \
 tar --format=gnu --owner=0 --group=0 --numeric-owner \
   -czf "$WORKDIR/data.tar.gz" -C "$WORKDIR/data" .
 
-mkdir -p "$(dirname "$OUT_IPK")"
 rm -f "$OUT_IPK"
 
-# ipk is an ar archive; prefer binutils ar
+# ipk is an ar archive; write with absolute path after staging members
 if command -v ar >/dev/null 2>&1; then
   (
     cd "$WORKDIR"
     ar r "$OUT_IPK" debian-binary control.tar.gz data.tar.gz
   )
 else
-  # Fallback: GNU tar + bsdtar style not ideal; require ar
   echo "ar(1) is required to build ipk" >&2
   exit 1
 fi

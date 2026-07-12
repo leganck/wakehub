@@ -37,15 +37,16 @@ jobs:
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             V="${GITHUB_REF_NAME#v}"
           else
-            V=$(git describe --tags --match 'v*' 2>/dev/null | sed 's/^v//' || true)
-            if [[ -z "$V" ]]; then
-              V="0.0.0-snapshot.${GITHUB_SHA::7}"
-            else
-              V="${V}-snapshot.${GITHUB_SHA::7}"
+            # Snapshot: base on latest tag when present, else 0.0.0
+            BASE=$(git describe --tags --match 'v*' --abbrev=0 2>/dev/null | sed 's/^v//' || true)
+            if [[ -z "$BASE" ]]; then
+              BASE="0.0.0"
             fi
+            V="${BASE}-snapshot.${GITHUB_SHA::7}"
           fi
-          # opkg-friendly: replace + from git describe dirty/semver metadata
+          # opkg-friendly version string
           V="${V//+/-}"
+          V="${V//_/-}"
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "Building version: $V"
 
