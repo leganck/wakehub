@@ -60,9 +60,9 @@ function buildClientCommands(host, port, token, key, wsPath) {
 	var run = 'wakehub-client run -server %s -token %s -key %s'.format(server, token, key);
 	var install =
 		'# Windows（管理员）\n' +
-		'wakehub-client.exe install -server %s -token %s -key %s\n\n'.format(server, token, key) +
+		'wakehub-client.exe service install -server %s -token %s -key %s\n\n'.format(server, token, key) +
 		'# Linux（root）\n' +
-		'./wakehub-client install -server %s -token %s -key %s'.format(
+		'./wakehub-client service install -server %s -token %s -key %s'.format(
 			shellQuote(server), shellQuote(token), shellQuote(key));
 	return { run: run, install: install, server: server };
 }

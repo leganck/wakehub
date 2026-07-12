@@ -630,9 +630,9 @@ function updateClientCommands() {
   // Install hints for both OS
   instEl.textContent =
     `# Windows（管理员 PowerShell / CMD）\n` +
-    `wakehub-client.exe install -server ${server} -token ${token} -key ${key}\n\n` +
+    `wakehub-client.exe service install -server ${server} -token ${token} -key ${key}\n\n` +
     `# Linux（root）\n` +
-    `./wakehub-client install -server ${shellQuote(server)} -token ${shellQuote(token)} -key ${shellQuote(key)}`;
+    `./wakehub-client service install -server ${shellQuote(server)} -token ${shellQuote(token)} -key ${shellQuote(key)}`;
 }
 
 async function loadSettings() {

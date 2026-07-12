@@ -183,7 +183,7 @@ func (m *Manager) setLastErrorLocked(err error) {
 func (m *Manager) Reconfigure(uid string, devices []config.Device) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	uid = strings.TrimSpace(uid)
+	uid = sanitizeUID(uid)
 	if uid == m.uid && m.dev != nil {
 		m.appendLogLocked(LogInfo, "resync subscriptions (%d devices)", len(devices))
 		return m.syncLocked(devices)
@@ -269,8 +269,16 @@ func (m *Manager) EnsureDevice(d *config.Device) error {
 		name = "WakeHub"
 	}
 	if err := createTopicIdempotent(m, m.uid, topic, name); err != nil {
-		m.setLastErrorLocked(err)
-		return err
+		// 创建失败仍尝试订阅：主题可能已在控制台手动创建，或 API 误报参数错误。
+		m.appendLogLocked(LogWarn, "create topic failed, try subscribe anyway: %v", err)
+		if subErr := m.subscribeLocked(topic, d.ID); subErr != nil {
+			m.setLastErrorLocked(err)
+			m.appendLogLocked(LogError, "subscribe after create-fail also failed topic=%s: %v", topic, subErr)
+			return fmt.Errorf("%w; subscribe: %v", err, subErr)
+		}
+		m.appendLogLocked(LogEvent, "subscribed existing/manual topic=%s device=%s (create API failed)", topic, d.ID)
+		m.setLastErrorLocked(err) // keep last create error visible but device usable
+		return nil
 	}
 	if err := m.subscribeLocked(topic, d.ID); err != nil {
 		m.setLastErrorLocked(err)
@@ -370,11 +378,14 @@ func (m *Manager) unsubscribeLocked(topic string) error {
 }
 
 func createTopicIdempotent(m *Manager, uid, topic, name string) error {
-	uid = strings.TrimSpace(uid)
+	uid = sanitizeUID(uid)
 	topic = normalizeTopic(topic)
 	name = sanitizeName(name)
 	if uid == "" {
 		return errors.New("bemfa UID is empty")
+	}
+	if err := validateUID(uid); err != nil {
+		return err
 	}
 	if err := ValidateTopic(topic); err != nil {
 		return err
@@ -394,6 +405,18 @@ func createTopicIdempotent(m *Manager, uid, topic, name string) error {
 					UID:   uid,
 					Topic: topic,
 					Type:  int(deviceapi.ProtocolMQTT),
+					Name:  name,
+				})
+				return err
+			},
+		},
+		{
+			label: "CreateTopic(v2,type=5,MQTTv2)",
+			fn: func() error {
+				_, err := deviceapi.CreateTopic(deviceapi.CreateTopicRequest{
+					UID:   uid,
+					Topic: topic,
+					Type:  int(deviceapi.ProtocolMQTTV2),
 					Name:  name,
 				})
 				return err
@@ -445,7 +468,8 @@ func createTopicIdempotent(m *Manager, uid, topic, name string) error {
 		}
 	}
 
-	return fmt.Errorf("%w (topic=%s uid=%s; 主题仅允许字母数字并以001结尾，UID须为控制台私钥)", last, topic, maskUID(uid))
+	return fmt.Errorf("%w | topic=%s name=%q uid=%s | 排查: 1)UID须为巴法「用户私钥」非密钥/AppID 2)主题仅字母数字且以001结尾 3)可先在MQTT控制台手动创建同名主题",
+		last, topic, name, maskUID(uid))
 }
 
 func isAlreadyExists(err error) bool {
@@ -512,7 +536,7 @@ func sanitizeName(name string) string {
 }
 
 func maskUID(uid string) string {
-	uid = strings.TrimSpace(uid)
+	uid = sanitizeUID(uid)
 	if len(uid) <= 6 {
 		if uid == "" {
 			return ""
@@ -520,6 +544,41 @@ func maskUID(uid string) string {
 		return "****"
 	}
 	return uid[:3] + "****" + uid[len(uid)-3:]
+}
+
+// sanitizeUID strips spaces/newlines/zero-width chars common when pasting from console.
+func sanitizeUID(uid string) string {
+	uid = strings.TrimSpace(uid)
+	uid = strings.ReplaceAll(uid, "\u200b", "")
+	uid = strings.ReplaceAll(uid, "\u200c", "")
+	uid = strings.ReplaceAll(uid, "\u200d", "")
+	uid = strings.ReplaceAll(uid, "\ufeff", "")
+	uid = strings.ReplaceAll(uid, "\r", "")
+	uid = strings.ReplaceAll(uid, "\n", "")
+	uid = strings.ReplaceAll(uid, " ", "")
+	uid = strings.ReplaceAll(uid, "\t", "")
+	return uid
+}
+
+func validateUID(uid string) error {
+	uid = sanitizeUID(uid)
+	if uid == "" {
+		return errors.New("bemfa UID is empty")
+	}
+	// Private keys are typically long hex; short values are often AppID/wrong field.
+	if len(uid) < 16 {
+		return fmt.Errorf("bemfa UID too short (%d chars); 请使用控制台「用户私钥」(通常为较长十六进制)，不要用密钥/AppID", len(uid))
+	}
+	for _, r := range uid {
+		if (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F') {
+			continue
+		}
+		// Allow non-hex private keys if platform ever changes, but warn via soft check only for pure invalid punctuation
+		if r < 33 || r > 126 {
+			return fmt.Errorf("bemfa UID contains invalid character")
+		}
+	}
+	return nil
 }
 
 func GenerateTopic() string {

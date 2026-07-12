@@ -10,6 +10,14 @@ import (
 	"strings"
 )
 
+// IsWindowsService is always false on non-Windows.
+func IsWindowsService() bool { return false }
+
+// Run is only used for Windows SCM integration.
+func Run(name string, run Runner) error {
+	return fmt.Errorf("windows service mode is not supported on this platform")
+}
+
 func unitPath(name string) string {
 	return filepath.Join("/etc/systemd/system", name+".service")
 }

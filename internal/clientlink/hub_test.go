@@ -86,6 +86,20 @@ func TestHubTokenAndShutdown(t *testing.T) {
 	if !strings.Contains(got, "shutdown") {
 		t.Fatalf("want shutdown msg, got %s", got)
 	}
+	// client reports ack
+	_ = c2.WriteJSON(map[string]any{"type": "shutdown_ack", "ok": true})
+	deadline = time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		info, _ := hub.Get("pc1")
+		if info.LastEvent == "shutdown_ack" {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	info, _ = hub.Get("pc1")
+	if info.LastEvent != "shutdown_ack" {
+		t.Fatalf("want lastEvent shutdown_ack, got %+v", info)
+	}
 	_ = c2.Close()
 }
 

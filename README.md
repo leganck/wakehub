@@ -31,10 +31,10 @@ go run ./cmd/client run -server ws://<server-ip>:8080/api/ws/client -key my-pc
 
 ```bash
 # Windows（管理员）
-bin\wakehub-client.exe install -server ws://192.168.1.50:8080/api/ws/client -key my-pc
+bin\wakehub-client.exe service install -server ws://192.168.1.50:8080/api/ws/client -key my-pc
 
 # Linux（root）
-./wakehub-client install -server ws://192.168.1.50:8080/api/ws/client -key my-pc
+./wakehub-client service install -server ws://192.168.1.50:8080/api/ws/client -key my-pc
 ```
 
 ## Docker Compose

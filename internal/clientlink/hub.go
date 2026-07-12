@@ -3,6 +3,7 @@ package clientlink
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"sync"
 	"time"
@@ -26,12 +27,15 @@ type ServerMsg struct {
 }
 
 type ClientInfo struct {
-	Key       string           `json:"key"`
-	Hostname  string           `json:"hostname"`
-	NICs      []config.NICInfo `json:"nics"`
-	Remote    string           `json:"remote"`
-	Connected int64            `json:"connectedAt"`
-	LastSeen  int64            `json:"lastSeen"`
+	Key         string           `json:"key"`
+	Hostname    string           `json:"hostname"`
+	NICs        []config.NICInfo `json:"nics"`
+	Remote      string           `json:"remote"`
+	Connected   int64            `json:"connectedAt"`
+	LastSeen    int64            `json:"lastSeen"`
+	LastEvent   string           `json:"lastEvent,omitempty"`   // e.g. shutdown_ack / shutdown_err
+	LastError   string           `json:"lastError,omitempty"`
+	LastEventAt int64            `json:"lastEventAt,omitempty"`
 }
 
 type connEntry struct {
@@ -172,10 +176,13 @@ func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
 		}
 		if mt == websocket.TextMessage {
 			var m map[string]any
-			if json.Unmarshal(msg, &m) == nil {
-				if t, _ := m["type"].(string); t == "ping" {
-					_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"pong"}`))
-				}
+			if json.Unmarshal(msg, &m) != nil {
+				continue
+			}
+			t, _ := m["type"].(string)
+			switch t {
+			case "ping":
+				_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"pong"}`))
 				if nics, ok := m["nics"]; ok {
 					b, _ := json.Marshal(nics)
 					var list []config.NICInfo
@@ -190,7 +197,30 @@ func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
 						}
 						h.mu.Unlock()
 					}
+				} else {
+					h.mu.Lock()
+					if e, ok := h.clients[hello.Key]; ok {
+						e.info.LastSeen = time.Now().Unix()
+					}
+					h.mu.Unlock()
 				}
+			case "shutdown_ack", "shutdown_err":
+				errMsg, _ := m["error"].(string)
+				h.mu.Lock()
+				if e, ok := h.clients[hello.Key]; ok {
+					e.info.LastEvent = t
+					e.info.LastError = errMsg
+					e.info.LastEventAt = time.Now().Unix()
+					e.info.LastSeen = time.Now().Unix()
+				}
+				h.mu.Unlock()
+				if t == "shutdown_ack" {
+					log.Printf("client %s shutdown_ack", hello.Key)
+				} else {
+					log.Printf("client %s shutdown_err: %s", hello.Key, errMsg)
+				}
+			default:
+				// ignore unknown types
 			}
 		}
 	}
