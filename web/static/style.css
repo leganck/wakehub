@@ -564,6 +564,92 @@ select {
   accent-color: var(--primary);
 }
 
+.conditional-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  margin: 4px 0 var(--space-sm);
+  padding: 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--divider-soft);
+  background: var(--surface-pearl);
+}
+
+.conditional-block[hidden] {
+  display: none !important;
+}
+
+.btn-link-toggle {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--primary);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 8px 0;
+  margin: 4px 0;
+  cursor: pointer;
+  text-align: left;
+  min-height: auto;
+}
+
+.btn-link-toggle:hover {
+  text-decoration: underline;
+}
+
+.dialog-card {
+  max-height: min(90vh, 720px);
+  overflow: auto;
+}
+
+#deviceDialog {
+  width: min(720px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
+}
+
+.dialog-card-wide {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.dialog-two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-lg);
+  align-items: start;
+  margin-bottom: var(--space-sm);
+}
+
+.dialog-col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+.dialog-col-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: -0.12px;
+  color: var(--ink-muted-80);
+  text-transform: none;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--divider-soft);
+  margin-bottom: 2px;
+}
+
+@media (max-width: 640px) {
+  #deviceDialog {
+    width: calc(100vw - 24px);
+  }
+
+  .dialog-two-col {
+    grid-template-columns: 1fr;
+    gap: var(--space-md);
+  }
+}
+
 #settingsForm input:disabled,
 #settingsForm button:disabled {
   opacity: 0.55;

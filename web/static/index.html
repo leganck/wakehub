@@ -228,89 +228,118 @@
   </div>
 
   <dialog id="deviceDialog">
-    <form method="dialog" id="deviceForm" class="card dialog-card">
+    <form id="deviceForm" class="card dialog-card dialog-card-wide" novalidate>
       <h3 id="deviceDialogTitle">设备</h3>
       <input type="hidden" name="id" />
-      <label class="field">
-        <span class="field-label">名称</span>
-        <input name="name" required />
-      </label>
-      <label class="field">
-        <span class="field-label">从客户端网卡选择（多网卡）</span>
-        <select name="nicPick" id="nicPick">
-          <option value="">— 手动填写 MAC —</option>
-        </select>
-      </label>
-      <label class="field">
-        <span class="field-label">MAC</span>
-        <input name="mac" required placeholder="AA:BB:CC:DD:EE:FF" />
-      </label>
-      <label class="field">
-        <span class="field-label">广播地址</span>
-        <input name="broadcast" placeholder="空=本机全部广播" />
-      </label>
-      <div class="field-grid">
-        <label class="field">
-          <span class="field-label">WOL 端口</span>
-          <input name="port" type="number" value="9" />
-        </label>
-        <label class="field">
-          <span class="field-label">重复次数</span>
-          <input name="repeat" type="number" value="3" />
-        </label>
+
+      <div class="dialog-two-col">
+        <!-- 左列：基础信息 -->
+        <div class="dialog-col">
+          <div class="dialog-col-title">基本信息</div>
+          <label class="field">
+            <span class="field-label">名称</span>
+            <input name="name" required autocomplete="off" />
+          </label>
+          <label class="field" id="nicPickField" hidden>
+            <span class="field-label">从客户端网卡选择</span>
+            <select name="nicPick" id="nicPick">
+              <option value="">— 手动填写 MAC —</option>
+            </select>
+          </label>
+          <label class="field">
+            <span class="field-label">MAC</span>
+            <input name="mac" required placeholder="AA:BB:CC:DD:EE:FF" autocomplete="off" />
+          </label>
+          <label class="field">
+            <span class="field-label">广播地址</span>
+            <input name="broadcast" placeholder="空=本机全部广播" autocomplete="off" />
+          </label>
+          <label class="field">
+            <span class="field-label">绑定客户端 Key</span>
+            <input name="boundClientKey" placeholder="可选，与 -key 一致；关机用" autocomplete="off" />
+          </label>
+          <p class="fine-print">关机需绑定；可与发现页「一键建档」自动填入。唤醒只需 MAC。</p>
+        </div>
+
+        <!-- 右列：可选能力 -->
+        <div class="dialog-col">
+          <div class="dialog-col-title">可选能力</div>
+
+          <label class="check">
+            <input name="bemfaEnable" type="checkbox" id="bemfaEnableCheck" />
+            <span>启用巴法云</span>
+          </label>
+          <div id="bemfaFields" class="conditional-block" hidden>
+            <label class="field">
+              <span class="field-label">巴法主题</span>
+              <input name="bemfaTopic" placeholder="空则自动生成 *001" autocomplete="off" />
+            </label>
+            <label class="field">
+              <span class="field-label">巴法显示名</span>
+              <input name="bemfaName" placeholder="默认同名称" autocomplete="off" />
+            </label>
+          </div>
+
+          <label class="check">
+            <input name="probeEnable" type="checkbox" id="probeEnableCheck" />
+            <span>启用在线探测</span>
+          </label>
+          <div id="probeFields" class="conditional-block" hidden>
+            <label class="field">
+              <span class="field-label">探测方式</span>
+              <select name="probeMethod" id="probeMethodSelect">
+                <option value="tcp">TCP 端口</option>
+                <option value="icmp">ICMP Ping</option>
+              </select>
+            </label>
+            <div class="field-grid">
+              <label class="field">
+                <span class="field-label">探测主机</span>
+                <input name="probeHost" placeholder="空=客户端 IPv4" autocomplete="off" />
+              </label>
+              <label class="field" id="probePortField">
+                <span class="field-label">TCP 端口</span>
+                <input name="probePort" type="number" value="3389" />
+              </label>
+            </div>
+            <label class="field">
+              <span class="field-label">探测间隔（秒）</span>
+              <input name="probeInterval" type="number" value="60" min="15" />
+            </label>
+          </div>
+
+          <button type="button" id="btnToggleDeviceAdvanced" class="btn-link-toggle" aria-expanded="false">
+            展开高级选项
+          </button>
+          <div id="deviceAdvanced" class="conditional-block" hidden>
+            <div class="field-grid">
+              <label class="field">
+                <span class="field-label">WOL 端口</span>
+                <input name="port" type="number" value="9" />
+              </label>
+              <label class="field">
+                <span class="field-label">重复次数</span>
+                <input name="repeat" type="number" value="3" />
+              </label>
+            </div>
+            <label class="field">
+              <span class="field-label">首选网卡名</span>
+              <input name="preferredNic" placeholder="如 eth0" autocomplete="off" />
+            </label>
+          </div>
+        </div>
       </div>
-      <label class="field">
-        <span class="field-label">绑定客户端 Key</span>
-        <input name="boundClientKey" placeholder="可选" />
-      </label>
-      <label class="field">
-        <span class="field-label">首选网卡名</span>
-        <input name="preferredNic" placeholder="如 eth0" />
-      </label>
-      <label class="field">
-        <span class="field-label">在线探测</span>
-        <select name="probeMethod">
-          <option value="off">关闭</option>
-          <option value="tcp">TCP 端口</option>
-          <option value="icmp">ICMP Ping</option>
-        </select>
-      </label>
-      <div class="field-grid">
-        <label class="field">
-          <span class="field-label">探测主机</span>
-          <input name="probeHost" placeholder="空=客户端 IPv4" />
-        </label>
-        <label class="field">
-          <span class="field-label">TCP 端口</span>
-          <input name="probePort" type="number" value="3389" />
-        </label>
-      </div>
-      <label class="field">
-        <span class="field-label">探测间隔（秒）</span>
-        <input name="probeInterval" type="number" value="60" min="15" />
-      </label>
-      <label class="check">
-        <input name="bemfaEnable" type="checkbox" />
-        <span>启用巴法</span>
-      </label>
-      <label class="field">
-        <span class="field-label">巴法主题</span>
-        <input name="bemfaTopic" placeholder="空则自动生成 *001" />
-      </label>
-      <label class="field">
-        <span class="field-label">巴法显示名</span>
-        <input name="bemfaName" placeholder="默认同名称" />
-      </label>
+
       <div class="dialog-actions">
-        <button value="cancel" type="submit" class="btn btn-secondary">取消</button>
-        <button id="btnSaveDevice" value="save" type="submit" class="btn btn-primary">保存</button>
+        <button type="button" id="btnCancelDevice" class="btn btn-secondary">取消</button>
+        <button type="submit" id="btnSaveDevice" class="btn btn-primary">保存</button>
       </div>
       <p id="deviceFormError" class="error"></p>
     </form>
   </dialog>
 
   <dialog id="groupDialog">
-    <form method="dialog" id="groupForm" class="card dialog-card">
+    <form id="groupForm" class="card dialog-card">
       <h3 id="groupDialogTitle">分组</h3>
       <input type="hidden" name="id" />
       <label class="field">
@@ -322,15 +351,15 @@
         <div id="groupDeviceChecks" class="check-list"></div>
       </div>
       <div class="dialog-actions">
-        <button value="cancel" type="submit" class="btn btn-secondary">取消</button>
-        <button value="save" type="submit" class="btn btn-primary">保存</button>
+        <button type="button" id="btnCancelGroup" class="btn btn-secondary">取消</button>
+        <button type="submit" class="btn btn-primary">保存</button>
       </div>
       <p id="groupFormError" class="error"></p>
     </form>
   </dialog>
 
   <dialog id="scheduleDialog">
-    <form method="dialog" id="scheduleForm" class="card dialog-card">
+    <form id="scheduleForm" class="card dialog-card">
       <h3 id="scheduleDialogTitle">定时任务</h3>
       <input type="hidden" name="id" />
       <label class="field">
@@ -382,8 +411,8 @@
         </div>
       </div>
       <div class="dialog-actions">
-        <button value="cancel" type="submit" class="btn btn-secondary">取消</button>
-        <button value="save" type="submit" class="btn btn-primary">保存</button>
+        <button type="button" id="btnCancelSchedule" class="btn btn-secondary">取消</button>
+        <button type="submit" class="btn btn-primary">保存</button>
       </div>
       <p id="scheduleFormError" class="error"></p>
     </form>

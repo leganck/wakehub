@@ -374,6 +374,7 @@ async function batchAction(action) {
 
 function fillNicPick(d = {}) {
   const sel = $('#nicPick');
+  const wrap = $('#nicPickField');
   if (!sel) return;
   const nics = d.boundClientNics || [];
   sel.innerHTML = '<option value="">— 手动填写 MAC —</option>';
@@ -386,6 +387,30 @@ function fillNicPick(d = {}) {
     if (d.mac && n.mac && d.mac.toLowerCase() === n.mac.toLowerCase()) opt.selected = true;
     sel.appendChild(opt);
   });
+  if (wrap) wrap.hidden = nics.length === 0;
+}
+
+function setDeviceAdvancedOpen(open) {
+  const adv = $('#deviceAdvanced');
+  const btn = $('#btnToggleDeviceAdvanced');
+  if (!adv || !btn) return;
+  adv.hidden = !open;
+  btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  btn.textContent = open ? '收起高级选项' : '展开高级选项';
+}
+
+function syncDeviceConditionalFields() {
+  const f = $('#deviceForm');
+  if (!f) return;
+  const bemfaOn = !!f.bemfaEnable?.checked;
+  const probeOn = !!f.probeEnable?.checked;
+  const bemfaFields = $('#bemfaFields');
+  const probeFields = $('#probeFields');
+  if (bemfaFields) bemfaFields.hidden = !bemfaOn;
+  if (probeFields) probeFields.hidden = !probeOn;
+  const method = f.probeMethod?.value || 'tcp';
+  const portField = $('#probePortField');
+  if (portField) portField.hidden = method !== 'tcp';
 }
 
 function openDeviceDialog(d = {}) {
@@ -398,7 +423,9 @@ function openDeviceDialog(d = {}) {
   f.repeat.value = d.repeat || 3;
   f.boundClientKey.value = d.boundClientKey || '';
   f.preferredNic.value = d.preferredNic || '';
-  f.probeMethod.value = d.probeMethod || 'off';
+  const probeOn = d.probeMethod && d.probeMethod !== 'off';
+  if (f.probeEnable) f.probeEnable.checked = !!probeOn;
+  if (f.probeMethod) f.probeMethod.value = probeOn ? d.probeMethod : 'tcp';
   f.probeHost.value = d.probeHost || '';
   f.probePort.value = d.probePort || 3389;
   f.probeInterval.value = d.probeInterval || 60;
@@ -406,9 +433,16 @@ function openDeviceDialog(d = {}) {
   f.bemfaTopic.value = d.bemfaTopic || '';
   f.bemfaName.value = d.bemfaName || '';
   fillNicPick(d);
+  setDeviceAdvancedOpen(false);
+  syncDeviceConditionalFields();
   $('#deviceDialogTitle').textContent = d.id ? '编辑设备' : '添加设备';
   $('#deviceFormError').textContent = '';
   $('#deviceDialog').showModal();
+}
+
+function closeDeviceDialog() {
+  const dlg = $('#deviceDialog');
+  if (dlg?.open) dlg.close();
 }
 
 $('#nicPick')?.addEventListener('change', () => {
@@ -424,40 +458,67 @@ $('#nicPick')?.addEventListener('change', () => {
   } catch (_) {}
 });
 
+$('#bemfaEnableCheck')?.addEventListener('change', syncDeviceConditionalFields);
+$('#probeEnableCheck')?.addEventListener('change', syncDeviceConditionalFields);
+$('#probeMethodSelect')?.addEventListener('change', syncDeviceConditionalFields);
+
+$('#btnToggleDeviceAdvanced')?.addEventListener('click', () => {
+  const adv = $('#deviceAdvanced');
+  setDeviceAdvancedOpen(!!adv?.hidden);
+});
+
+$('#btnCancelDevice')?.addEventListener('click', () => closeDeviceDialog());
+
+// Click backdrop to close
+$('#deviceDialog')?.addEventListener('click', (ev) => {
+  if (ev.target === ev.currentTarget) closeDeviceDialog();
+});
+
 $('#btnAddDevice').onclick = () => openDeviceDialog({});
 $('#btnRefreshDevices').onclick = () => loadDevices();
 $('#btnBatchWake')?.addEventListener('click', () => batchAction('wake'));
 $('#btnBatchShutdown')?.addEventListener('click', () => batchAction('shutdown'));
 
 $('#deviceForm').addEventListener('submit', async (ev) => {
-  const submitter = ev.submitter;
-  if (submitter && submitter.value === 'cancel') return;
   ev.preventDefault();
   const f = ev.target;
+  const errEl = $('#deviceFormError');
+  errEl.textContent = '';
+  if (!f.name.value.trim()) {
+    errEl.textContent = '请填写名称';
+    f.name.focus();
+    return;
+  }
+  if (!f.mac.value.trim()) {
+    errEl.textContent = '请填写 MAC';
+    f.mac.focus();
+    return;
+  }
+  const probeOn = !!f.probeEnable?.checked;
   const body = {
     id: f.id.value,
-    name: f.name.value,
-    mac: f.mac.value,
+    name: f.name.value.trim(),
+    mac: f.mac.value.trim(),
     broadcast: f.broadcast.value,
     port: Number(f.port.value || 9),
     repeat: Number(f.repeat.value || 3),
     boundClientKey: f.boundClientKey.value,
     preferredNic: f.preferredNic?.value || '',
-    probeMethod: f.probeMethod?.value || 'off',
-    probeHost: f.probeHost?.value || '',
+    probeMethod: probeOn ? f.probeMethod?.value || 'tcp' : 'off',
+    probeHost: probeOn ? f.probeHost?.value || '' : '',
     probePort: Number(f.probePort?.value || 3389),
     probeInterval: Number(f.probeInterval?.value || 60),
     bemfaEnable: f.bemfaEnable.checked,
-    bemfaTopic: f.bemfaTopic.value,
-    bemfaName: f.bemfaName.value,
+    bemfaTopic: f.bemfaEnable.checked ? f.bemfaTopic.value : '',
+    bemfaName: f.bemfaEnable.checked ? f.bemfaName.value : '',
   };
   try {
     if (body.id) await api('/api/devices/' + body.id, { method: 'PUT', body: JSON.stringify(body) });
     else await api('/api/devices', { method: 'POST', body: JSON.stringify(body) });
-    $('#deviceDialog').close();
+    closeDeviceDialog();
     loadDevices();
   } catch (e) {
-    $('#deviceFormError').textContent = e.message;
+    errEl.textContent = e.message;
   }
 });
 
@@ -767,8 +828,15 @@ async function openGroupDialog(g = {}) {
 $('#btnAddGroup')?.addEventListener('click', () => openGroupDialog({}));
 $('#btnRefreshGroups')?.addEventListener('click', () => loadGroups());
 
+$('#btnCancelGroup')?.addEventListener('click', () => {
+  const dlg = $('#groupDialog');
+  if (dlg?.open) dlg.close();
+});
+$('#groupDialog')?.addEventListener('click', (ev) => {
+  if (ev.target === ev.currentTarget) ev.currentTarget.close();
+});
+
 $('#groupForm')?.addEventListener('submit', async (ev) => {
-  if (ev.submitter && ev.submitter.value === 'cancel') return;
   ev.preventDefault();
   const f = ev.target;
   const ids = [...f.querySelectorAll('#groupDeviceChecks input:checked')].map((el) => el.value);
@@ -891,8 +959,15 @@ $('#schedTargetType')?.addEventListener('change', (ev) => {
 $('#btnAddSchedule')?.addEventListener('click', () => openScheduleDialog({}));
 $('#btnRefreshSchedules')?.addEventListener('click', () => loadSchedules());
 
+$('#btnCancelSchedule')?.addEventListener('click', () => {
+  const dlg = $('#scheduleDialog');
+  if (dlg?.open) dlg.close();
+});
+$('#scheduleDialog')?.addEventListener('click', (ev) => {
+  if (ev.target === ev.currentTarget) ev.currentTarget.close();
+});
+
 $('#scheduleForm')?.addEventListener('submit', async (ev) => {
-  if (ev.submitter && ev.submitter.value === 'cancel') return;
   ev.preventDefault();
   const f = ev.target;
   const weekdays = $$('#schedWeekdays input:checked').map((el) => Number(el.value));
