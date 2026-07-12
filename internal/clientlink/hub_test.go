@@ -33,8 +33,8 @@ func TestHubTokenAndShutdown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(msg), "token mismatch") {
-		t.Fatalf("want token mismatch, got %s", msg)
+	if !strings.Contains(string(msg), "token mismatch") || !strings.Contains(string(msg), "token_mismatch") {
+		t.Fatalf("want token mismatch with code, got %s", msg)
 	}
 	_ = c.Close()
 
@@ -114,7 +114,7 @@ func TestHubRejectsInvalidHello(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(msg), "invalid hello") {
+	if !strings.Contains(string(msg), "invalid hello") || !strings.Contains(string(msg), "invalid_hello") {
 		t.Fatalf("got %s", msg)
 	}
 	_ = c.Close()

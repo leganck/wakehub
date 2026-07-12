@@ -11,22 +11,12 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/leganck/wakehub/internal/config"
+	"github.com/leganck/wakehub/internal/protocol"
 )
 
 var upgrader = websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
 
-type Hello struct {
-	Type     string          `json:"type"`
-	Key      string          `json:"key"`
-	Token    string          `json:"token"`
-	Hostname string          `json:"hostname"`
-	NICs     []config.NICInfo `json:"nics"`
-}
-
-type ServerMsg struct {
-	Type string `json:"type"`
-}
-
+// ClientInfo is the public view of a connected client.
 type ClientInfo struct {
 	Key         string           `json:"key"`
 	Hostname    string           `json:"hostname"`
@@ -34,7 +24,10 @@ type ClientInfo struct {
 	Remote      string           `json:"remote"`
 	Connected   int64            `json:"connectedAt"`
 	LastSeen    int64            `json:"lastSeen"`
-	LastEvent   string           `json:"lastEvent,omitempty"`   // e.g. shutdown_ack / shutdown_err
+	Version     string           `json:"version,omitempty"`
+	OS          string           `json:"os,omitempty"`
+	Arch        string           `json:"arch,omitempty"`
+	LastEvent   string           `json:"lastEvent,omitempty"`
 	LastError   string           `json:"lastError,omitempty"`
 	LastEventAt int64            `json:"lastEventAt,omitempty"`
 }
@@ -46,10 +39,10 @@ type connEntry struct {
 }
 
 type Hub struct {
-	mu          sync.RWMutex
-	clients     map[string]*connEntry
-	token       string
-	onChange    func()
+	mu       sync.RWMutex
+	clients  map[string]*connEntry
+	token    string
+	onChange func()
 }
 
 func NewHub(token string) *Hub {
@@ -109,14 +102,19 @@ func (h *Hub) Shutdown(key string) error {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	// requestId lets the client dedupe and ack before powering off.
 	reqID := fmt.Sprintf("%s-%d", key, time.Now().UnixNano())
-	msg, _ := json.Marshal(map[string]any{
-		"type":      "shutdown",
-		"requestId": reqID,
-	})
+	msg, _ := json.Marshal(protocol.NewShutdown(reqID))
 	_ = c.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 	return c.conn.WriteMessage(websocket.TextMessage, msg)
+}
+
+func writeWSJSON(conn *websocket.Conn, v any) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	_ = conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	return conn.WriteMessage(websocket.TextMessage, b)
 }
 
 func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
@@ -131,16 +129,16 @@ func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	var hello Hello
-	if err := json.Unmarshal(data, &hello); err != nil || hello.Type != "hello" || hello.Key == "" {
-		_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"error","message":"invalid hello"}`))
+	var hello protocol.Hello
+	if err := json.Unmarshal(data, &hello); err != nil || hello.Type != protocol.TypeHello || hello.Key == "" {
+		_ = writeWSJSON(conn, protocol.NewError(protocol.CodeInvalidHello, "invalid hello"))
 		return
 	}
 	h.mu.RLock()
 	token := h.token
 	h.mu.RUnlock()
 	if token != "" && hello.Token != token {
-		_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"error","message":"token mismatch"}`))
+		_ = writeWSJSON(conn, protocol.NewError(protocol.CodeTokenMismatch, "token mismatch"))
 		return
 	}
 	now := time.Now().Unix()
@@ -153,6 +151,9 @@ func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
 			Remote:    r.RemoteAddr,
 			Connected: now,
 			LastSeen:  now,
+			Version:   hello.Version,
+			OS:        hello.OS,
+			Arch:      hello.Arch,
 		},
 	}
 	h.mu.Lock()
@@ -162,7 +163,7 @@ func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
 	h.clients[hello.Key] = entry
 	h.mu.Unlock()
 	h.notify()
-	_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"hello_ok"}`))
+	_ = writeWSJSON(conn, protocol.NewHelloOK())
 
 	conn.SetPongHandler(func(string) error {
 		h.mu.Lock()
@@ -180,59 +181,60 @@ func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			break
 		}
-		if mt == websocket.TextMessage {
-			var m map[string]any
-			if json.Unmarshal(msg, &m) != nil {
-				continue
-			}
-			t, _ := m["type"].(string)
-			switch t {
-			case "ping":
-				_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"pong"}`))
-				if nics, ok := m["nics"]; ok {
-					b, _ := json.Marshal(nics)
-					var list []config.NICInfo
-					if json.Unmarshal(b, &list) == nil {
-						h.mu.Lock()
-						if e, ok := h.clients[hello.Key]; ok {
-							e.info.NICs = list
-							e.info.LastSeen = time.Now().Unix()
-							if hn, ok := m["hostname"].(string); ok && hn != "" {
-								e.info.Hostname = hn
-							}
-						}
-						h.mu.Unlock()
-					}
-				} else {
+		if mt != websocket.TextMessage {
+			continue
+		}
+		var m map[string]any
+		if json.Unmarshal(msg, &m) != nil {
+			continue
+		}
+		t, _ := m["type"].(string)
+		switch t {
+		case protocol.TypePing:
+			_ = writeWSJSON(conn, protocol.NewPong())
+			if nics, ok := m["nics"]; ok {
+				b, _ := json.Marshal(nics)
+				var list []config.NICInfo
+				if json.Unmarshal(b, &list) == nil {
 					h.mu.Lock()
 					if e, ok := h.clients[hello.Key]; ok {
+						e.info.NICs = list
 						e.info.LastSeen = time.Now().Unix()
+						if hn, ok := m["hostname"].(string); ok && hn != "" {
+							e.info.Hostname = hn
+						}
 					}
 					h.mu.Unlock()
 				}
-			case "shutdown_ack", "shutdown_err":
-				errMsg, _ := m["error"].(string)
-				status, _ := m["status"].(string)
-				reqID, _ := m["requestId"].(string)
+			} else {
 				h.mu.Lock()
 				if e, ok := h.clients[hello.Key]; ok {
-					e.info.LastEvent = t
-					if status != "" {
-						e.info.LastEvent = t + ":" + status
-					}
-					e.info.LastError = errMsg
-					e.info.LastEventAt = time.Now().Unix()
 					e.info.LastSeen = time.Now().Unix()
 				}
 				h.mu.Unlock()
-				if t == "shutdown_ack" {
-					log.Printf("client %s shutdown_ack status=%s requestId=%s", hello.Key, status, reqID)
-				} else {
-					log.Printf("client %s shutdown_err requestId=%s: %s", hello.Key, reqID, errMsg)
-				}
-			default:
-				// ignore unknown types
 			}
+		case protocol.TypeShutdownAck, protocol.TypeShutdownErr:
+			errMsg, _ := m["error"].(string)
+			status, _ := m["status"].(string)
+			reqID, _ := m["requestId"].(string)
+			h.mu.Lock()
+			if e, ok := h.clients[hello.Key]; ok {
+				e.info.LastEvent = t
+				if status != "" {
+					e.info.LastEvent = t + ":" + status
+				}
+				e.info.LastError = errMsg
+				e.info.LastEventAt = time.Now().Unix()
+				e.info.LastSeen = time.Now().Unix()
+			}
+			h.mu.Unlock()
+			if t == protocol.TypeShutdownAck {
+				log.Printf("client %s shutdown_ack status=%s requestId=%s", hello.Key, status, reqID)
+			} else {
+				log.Printf("client %s shutdown_err requestId=%s: %s", hello.Key, reqID, errMsg)
+			}
+		default:
+			// ignore unknown types
 		}
 	}
 

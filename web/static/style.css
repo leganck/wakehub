@@ -419,6 +419,64 @@ main {
   color: var(--ink-muted-48);
 }
 
+.badge.warn {
+  color: #b25000;
+  border-color: color-mix(in srgb, #ff9500 40%, white);
+  background: color-mix(in srgb, #ff9500 12%, white);
+}
+
+/* Kind tints (client / probe / bemfa) — same on/off/warn semantics */
+.badge-client.on {
+  box-shadow: inset 3px 0 0 var(--ok);
+}
+.badge-probe.on {
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+.badge-bemfa.on {
+  box-shadow: inset 3px 0 0 #7d3cff;
+}
+.badge-bemfa.warn {
+  box-shadow: inset 3px 0 0 #ff9500;
+}
+
+.status-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--surface-pearl);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  color: var(--ink-muted-80);
+}
+
+.legend-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.legend-text {
+  flex: 1;
+  min-width: 12rem;
+  line-height: 1.35;
+}
+
+.event-line {
+  color: var(--ink-muted-48);
+  font-size: 13px;
+}
+
+@media (min-width: 720px) {
+  .status-legend {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
 .actions {
   display: flex;
   flex-wrap: wrap;

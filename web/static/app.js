@@ -145,8 +145,9 @@ async function refreshStatus() {
     const uidSet = !!(s.bemfaUIDSet || mqtt.uidSet);
     const bemfaClass = bemfaConnected ? 'ok' : uidSet ? 'muted' : 'muted';
     const bemfaText = bemfaConnected ? '已连接' : uidSet ? '未连接' : '未配置';
+    const ver = s.version ? ` · v${escapeHtml(s.version)}` : '';
     $('#statusBar').innerHTML =
-      `巴法 <span class="${bemfaClass}">${bemfaText}</span> · 客户端 ${s.clients} · 设备 ${s.devices}`;
+      `巴法 <span class="${bemfaClass}">${bemfaText}</span> · 客户端 ${s.clients} · 设备 ${s.devices}${ver}`;
   } catch (e) {
     $('#statusBar').textContent = '状态获取失败: ' + e.message;
   }
@@ -248,19 +249,17 @@ $('#btnClearMQTTLogs').onclick = async () => {
   }
 };
 
-function probeBadge(d) {
-  if (!d.probeMethod || d.probeMethod === 'off') {
-    return '<span class="badge off">探测关</span>';
-  }
-  if (d.probeOnline === true) return '<span class="badge on">探测在线</span>';
-  if (d.probeOnline === false) return '<span class="badge off">探测离线</span>';
-  return '<span class="badge off">探测中</span>';
-}
-
 function deviceCard(d) {
   const el = document.createElement('div');
   el.className = 'device';
+  const S = window.WakeHubStatus || {};
+  const badges = S.statusBadgesHTML ? S.statusBadgesHTML(d) : '';
   const nicHint = d.preferredNic ? ` · 网卡 ${escapeHtml(d.preferredNic)}` : '';
+  const verHint = d.clientVersion ? ` · 客户端 v${escapeHtml(d.clientVersion)}` : '';
+  const lastEv = S.formatClientEvent ? S.formatClientEvent(d) : '';
+  const lastEvHTML = lastEv
+    ? `<div class="meta event-line">最近客户端事件：${escapeHtml(lastEv)}</div>`
+    : '';
   el.innerHTML = `
     <div class="device-head">
       <div>
@@ -268,19 +267,16 @@ function deviceCard(d) {
           <input type="checkbox" class="device-select" data-id="${escapeHtml(d.id)}" />
           ${escapeHtml(d.name)}
         </h3>
-        <div class="meta">MAC ${escapeHtml(d.mac)}${nicHint}</div>
+        <div class="meta">MAC ${escapeHtml(d.mac)}${nicHint}${verHint}</div>
       </div>
-      <div class="badges">
-        <span class="badge ${d.clientOnline ? 'on' : 'off'}">客户端${d.clientOnline ? '在线' : '离线'}</span>
-        ${probeBadge(d)}
-        <span class="badge ${d.bemfaEnable ? 'on' : 'off'}">巴法${d.bemfaEnable ? '开' : '关'}</span>
-      </div>
+      <div class="badges">${badges}</div>
     </div>
     <div class="meta">广播 ${escapeHtml(d.broadcast || '自动')} · WOL ${d.port || 9} · 重复 ${d.repeat || 3}</div>
     <div class="meta">探测 ${escapeHtml(d.probeMethod || 'off')}${d.probeHost ? ' @ ' + escapeHtml(d.probeHost) : ''}${d.probeMethod === 'tcp' ? ':' + (d.probePort || 3389) : ''} · 绑定 ${escapeHtml(d.boundClientKey || '—')}</div>
+    ${lastEvHTML}
     <div class="actions">
       <button class="btn btn-wake" data-act="wake" type="button">唤醒</button>
-      <button class="btn btn-shutdown" data-act="shutdown" type="button">关机</button>
+      <button class="btn btn-shutdown" data-act="shutdown" type="button" ${d.clientOnline ? '' : 'title="需要客户端在线"'}>关机</button>
       <button class="btn btn-utility" data-act="probe" type="button">探测</button>
       <button class="btn btn-utility" data-act="edit" type="button">编辑</button>
       <button class="btn btn-danger" data-act="del" type="button">删除</button>
@@ -301,6 +297,11 @@ function deviceCard(d) {
   el.querySelector('[data-act=shutdown]').onclick = async () => {
     const msg = el.querySelector('.actmsg');
     const name = d.name || d.id || '该设备';
+    if (!d.clientOnline) {
+      msg.className = 'error actmsg';
+      msg.textContent = '客户端离线，无法远程关机（请看「客户端」徽章）';
+      return;
+    }
     if (!confirm(`确认向「${name}」发送关机指令？\n\n设备将立即关机（需客户端在线）。`)) {
       msg.className = 'actmsg muted';
       msg.textContent = '已取消关机';
@@ -314,7 +315,9 @@ function deviceCard(d) {
     try {
       await api('/api/devices/' + d.id + '/shutdown', { method: 'POST', body: '{}' });
       msg.className = 'ok actmsg';
-      msg.textContent = '已发送关机';
+      msg.textContent = '已下发关机（客户端会先 ACK 再执行）';
+      // Refresh shortly to pick up clientLastEvent
+      setTimeout(() => loadDevices(), 800);
     } catch (e) {
       msg.className = 'error actmsg';
       msg.textContent = e.message;
@@ -533,13 +536,15 @@ async function loadDiscover() {
       (c.nics || [])
         .map((n) => `${escapeHtml(n.mac)} ${escapeHtml((n.ipv4 || []).join(', '))}`)
         .join('<br/>') || '—';
+    const ver = c.version ? ` · v${escapeHtml(c.version)}` : '';
+    const plat = [c.os, c.arch].filter(Boolean).join('/');
     el.innerHTML = `
       <div class="item-head">
         <div>
           <h3 class="item-title">${escapeHtml(c.hostname || c.key)}</h3>
-          <div class="meta">key=${escapeHtml(c.key)} · ${escapeHtml(c.remote || '')}</div>
+          <div class="meta">key=${escapeHtml(c.key)} · ${escapeHtml(c.remote || '')}${ver}${plat ? ' · ' + escapeHtml(plat) : ''}</div>
         </div>
-        <span class="badge on">在线</span>
+        <span class="badge badge-client on">客户端 在线</span>
       </div>
       <div class="meta">${nics}</div>
       <div class="actions">

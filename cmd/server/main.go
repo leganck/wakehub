@@ -4,7 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -38,9 +38,12 @@ func main() {
 		return
 	}
 
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})))
+
 	store, err := config.Open(*cfgPath)
 	if err != nil {
-		log.Fatalf("config: %v", err)
+		slog.Error("config open failed", "err", err)
+		os.Exit(1)
 	}
 	if *listen != "" {
 		_ = store.UpdateSettings(func(s *config.Settings) error {
@@ -49,17 +52,16 @@ func main() {
 		})
 	}
 
-	if tok, generated, err := store.EnsureClientToken(); err != nil {
-		log.Printf("client token ensure warning: %v", err)
+	if _, generated, err := store.EnsureClientToken(); err != nil {
+		slog.Warn("client token ensure", "err", err)
 	} else if generated {
-		log.Printf("client token was empty; generated random token (see Web UI settings)")
-		_ = tok
+		slog.Info("client token was empty; generated random token (see Web UI settings)")
 	}
 
 	hub := clientlink.NewHub(store.Settings().ClientToken)
 	svc := device.NewService(store, hub)
 	if err := svc.StartBemfa(); err != nil {
-		log.Printf("bemfa start warning: %v", err)
+		slog.Warn("bemfa start", "err", err)
 	}
 
 	browser := mdns.NewBrowser()
@@ -74,6 +76,7 @@ func main() {
 
 	api := webserver.New(store, svc, hub, browser)
 	api.SetProber(probeAdapter{r: prober})
+	api.SetBuildInfo(webserver.BuildInfo{Version: version, BuildTime: buildTime, StartedAt: time.Now()})
 	addr := store.Settings().Listen
 	if addr == "" {
 		addr = config.DefaultListen
@@ -83,14 +86,15 @@ func main() {
 	go func() {
 		printStartupSummary(store, svc, hub, addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("listen: %v", err)
+			slog.Error("listen failed", "err", err)
+			os.Exit(1)
 		}
 	}()
 
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, os.Interrupt, syscall.SIGTERM)
 	<-ch
-	log.Printf("shutting down...")
+	slog.Info("shutting down")
 	cancel()
 	svc.Bemfa().Close()
 	shctx, c2 := context.WithTimeout(context.Background(), 5*time.Second)
@@ -119,7 +123,6 @@ func printStartupSummary(store *config.Store, svc *device.Service, hub *clientli
 
 	_, port, err := net.SplitHostPort(addr)
 	if err != nil {
-		// e.g. invalid form; show whole addr as fallback
 		port = addr
 	}
 	if port == "" {
@@ -148,18 +151,20 @@ func printStartupSummary(store *config.Store, svc *device.Service, hub *clientli
 	}
 
 	var b strings.Builder
-	b.WriteString("\n")
-	b.WriteString("========== WakeHub Server ==========\n")
-	fmt.Fprintf(&b, "  Version     : %s (%s)\n", version, buildTime)
-	fmt.Fprintf(&b, "  Listen      : %s\n", addr)
-	fmt.Fprintf(&b, "  Port        : %s\n", port)
-	fmt.Fprintf(&b, "  Web UI      : http://127.0.0.1:%s/\n", port)
-	fmt.Fprintf(&b, "  Client WS   : ws://<host>:%s%s\n", port, wsPath)
-	fmt.Fprintf(&b, "  Config      : %s\n", store.Path())
-	fmt.Fprintf(&b, "  Devices     : %d (bemfa enabled: %d)\n", len(devices), bemfaEnabledCount)
-	fmt.Fprintf(&b, "  Online clients: %d\n", len(hub.List()))
-	fmt.Fprintf(&b, "  Client token: %s\n", tokenHint)
-	fmt.Fprintf(&b, "  Bemfa       : %s\n", bemfaStatus)
-	b.WriteString("================================\n")
-	log.Print(b.String())
+	fmt.Fprintf(&b, "wakehub-server %s (built %s)\n", version, buildTime)
+	fmt.Fprintf(&b, "  listen        %s\n", addr)
+	fmt.Fprintf(&b, "  web           http://127.0.0.1:%s/\n", port)
+	fmt.Fprintf(&b, "  health        http://127.0.0.1:%s/healthz\n", port)
+	fmt.Fprintf(&b, "  client ws     %s\n", wsPath)
+	fmt.Fprintf(&b, "  client token  %s\n", tokenHint)
+	fmt.Fprintf(&b, "  devices       %d (bemfa-enabled %d)\n", len(devices), bemfaEnabledCount)
+	fmt.Fprintf(&b, "  clients online %d\n", len(hub.List()))
+	fmt.Fprintf(&b, "  bemfa         %s\n", bemfaStatus)
+	if st.BasicAuthEnable {
+		fmt.Fprintf(&b, "  basic auth    on (user=%s)\n", st.BasicAuthUser)
+	} else {
+		fmt.Fprintf(&b, "  basic auth    off\n")
+	}
+	slog.Info("server ready")
+	fmt.Print(b.String())
 }

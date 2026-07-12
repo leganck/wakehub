@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>WakeHub</title>
   <link rel="stylesheet" href="/style.css" />
+  <script src="/status.js" defer></script>
+  <script src="/app.js" defer></script>
 </head>
 <body>
   <div class="page">
@@ -40,6 +42,24 @@
             <button id="btnBatchShutdown" class="btn btn-shutdown" type="button">批量关机</button>
             <button id="btnRefreshDevices" class="btn btn-secondary" type="button">刷新</button>
             <button id="btnAddDevice" class="btn btn-primary" type="button">添加设备</button>
+          </div>
+        </div>
+        <div class="status-legend" id="statusLegend" aria-label="状态图例">
+          <div class="legend-item">
+            <span class="badge badge-client on">客户端 在线</span>
+            <span class="legend-text">WakeHub 客户端已连接（可远程关机）</span>
+          </div>
+          <div class="legend-item">
+            <span class="badge badge-probe on">探测 在线</span>
+            <span class="legend-text">TCP/ICMP 探测主机可达（与客户端独立）</span>
+          </div>
+          <div class="legend-item">
+            <span class="badge badge-bemfa on">巴法 已连</span>
+            <span class="legend-text">设备启用巴法且全局 MQTT 已连接（云端 on/off）</span>
+          </div>
+          <div class="legend-item">
+            <span class="badge badge-bemfa warn">巴法 开·未连</span>
+            <span class="legend-text">设备已开巴法，但 MQTT 未连接或 UID 未配置</span>
           </div>
         </div>
         <div id="deviceList" class="stack"></div>
@@ -417,7 +437,5 @@
       <p id="scheduleFormError" class="error"></p>
     </form>
   </dialog>
-
-  <script src="/app.js"></script>
 </body>
 </html>

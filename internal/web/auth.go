@@ -16,8 +16,8 @@ func (s *Server) withBasicAuth(h http.Handler) http.Handler {
 		if wsPath == "" {
 			wsPath = config.DefaultWSPath
 		}
-		// Exempt client WS endpoint
-		if r.URL.Path == wsPath {
+		// Exempt client WS and unauthenticated health probes.
+		if r.URL.Path == wsPath || r.URL.Path == "/healthz" || r.URL.Path == "/readyz" {
 			h.ServeHTTP(w, r)
 			return
 		}

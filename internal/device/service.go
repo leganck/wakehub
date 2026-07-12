@@ -15,12 +15,16 @@ import (
 
 type View struct {
 	config.Device
-	ClientOnline   bool             `json:"clientOnline"`
-	BemfaConnected bool             `json:"bemfaConnected"`
-	BoundClientNICs []config.NICInfo `json:"boundClientNics,omitempty"`
-	BoundHostname   string           `json:"boundHostname,omitempty"`
-	ProbeOnline    *bool            `json:"probeOnline,omitempty"`
-	Probe          *probe.Result    `json:"probe,omitempty"`
+	ClientOnline    bool             `json:"clientOnline"`
+	BemfaConnected  bool             `json:"bemfaConnected"` // global MQTT session
+	BoundClientNICs  []config.NICInfo `json:"boundClientNics,omitempty"`
+	BoundHostname    string           `json:"boundHostname,omitempty"`
+	ClientVersion   string           `json:"clientVersion,omitempty"`
+	ClientLastEvent string           `json:"clientLastEvent,omitempty"`
+	ClientLastError string           `json:"clientLastError,omitempty"`
+	ClientLastEventAt int64          `json:"clientLastEventAt,omitempty"`
+	ProbeOnline     *bool            `json:"probeOnline,omitempty"`
+	Probe           *probe.Result    `json:"probe,omitempty"`
 }
 
 type Service struct {
@@ -85,6 +89,10 @@ func (s *Service) enrich(d config.Device) View {
 			v.ClientOnline = true
 			v.BoundClientNICs = info.NICs
 			v.BoundHostname = info.Hostname
+			v.ClientVersion = info.Version
+			v.ClientLastEvent = info.LastEvent
+			v.ClientLastError = info.LastError
+			v.ClientLastEventAt = info.LastEventAt
 		}
 	}
 	if pr, ok := s.probe.Get(d.ID); ok && pr.Method != "off" && pr.Error != "probe disabled" {

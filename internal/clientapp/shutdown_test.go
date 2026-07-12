@@ -1,6 +1,7 @@
 package clientapp
 
 import (
+	"encoding/json"
 	"sync"
 	"testing"
 	"time"
@@ -18,9 +19,17 @@ func TestHandleShutdownMsgAckFirstAndDedupe(t *testing.T) {
 		return nil
 	}
 	write := func(v any) error {
+		b, err := json.Marshal(v)
+		if err != nil {
+			return err
+		}
+		var m map[string]any
+		if err := json.Unmarshal(b, &m); err != nil {
+			return err
+		}
 		mu.Lock()
-		defer mu.Unlock()
-		msgs = append(msgs, v.(map[string]any))
+		msgs = append(msgs, m)
+		mu.Unlock()
 		return nil
 	}
 
@@ -30,7 +39,6 @@ func TestHandleShutdownMsgAckFirstAndDedupe(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("command not run")
 	}
-	// wait for executed ack
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		mu.Lock()
@@ -47,7 +55,6 @@ func TestHandleShutdownMsgAckFirstAndDedupe(t *testing.T) {
 	}
 	mu.Unlock()
 
-	// duplicate
 	HandleShutdownMsg(map[string]any{"type": "shutdown", "requestId": "r1"}, "poweroff", write)
 	mu.Lock()
 	defer mu.Unlock()

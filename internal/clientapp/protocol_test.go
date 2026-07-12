@@ -36,6 +36,10 @@ func TestHandleHelloResponse(t *testing.T) {
 	if !IsFatal(err) {
 		t.Fatalf("want fatal, got %v", err)
 	}
+	err = HandleHelloResponse([]byte(`{"type":"error","code":"token_mismatch","message":"no"}`))
+	if !IsFatal(err) {
+		t.Fatalf("want fatal by code, got %v", err)
+	}
 	err = HandleHelloResponse([]byte(`{"type":"error","message":"other"}`))
 	if IsFatal(err) {
 		t.Fatal("non-token error should not be fatal")

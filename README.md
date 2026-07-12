@@ -110,15 +110,26 @@ docker compose -f deploy/docker-compose.macvlan.yml up -d --build
 
 ## API
 
+- `GET /healthz` · `GET /readyz`（免 Basic 认证，便于探活）
+- `GET /api/version` · `GET /api/status`
 - `GET/PUT /api/settings`
 - `GET/POST /api/devices` · `PUT/DELETE /api/devices/{id}`
 - `POST /api/devices/{id}/wake` · `POST /api/devices/{id}/shutdown` · `POST /api/devices/{id}/probe`
 - `POST /api/batch` · `POST /api/devices/from-client`
 - `GET/POST /api/groups` · `PUT/DELETE /api/groups/{id}` · `POST .../wake|shutdown`
 - `GET/POST /api/schedules` · `PUT/DELETE /api/schedules/{id}`
-- `GET /api/clients` · `GET /api/discover` · `GET /api/status`
+- `GET /api/clients` · `GET /api/discover`
 - `GET /api/mqtt` · `GET|DELETE /api/mqtt/logs`
-- `WS /api/ws/client`
+- `WS /api/ws/client`（消息 schema：`internal/protocol`）
+
+### 客户端自更新
+
+```bash
+wakehub-client update check
+wakehub-client update apply          # 从 GitHub Releases 下载并替换当前二进制
+# 可选: -repo owner/name  或环境变量 WAKEHUB_RELEASE_REPO
+# Windows 服务占用 exe 时请先: service stop，再 apply，再 service start
+```
 
 ## OpenWrt
 

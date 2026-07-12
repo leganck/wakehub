@@ -8,11 +8,13 @@ import (
 	"strings"
 
 	"github.com/leganck/wakehub/internal/config"
+	"github.com/leganck/wakehub/internal/protocol"
 )
 
 // FatalError stops the reconnect loop (auth / permanent config problems).
 type FatalError struct {
-	Msg string
+	Msg  string
+	Code string
 }
 
 func (e *FatalError) Error() string { return e.Msg }
@@ -63,20 +65,32 @@ func HandleHelloResponse(msg []byte) error {
 	}
 	t, _ := m["type"].(string)
 	switch t {
-	case "hello_ok":
+	case protocol.TypeHelloOK:
 		return nil
-	case "error":
+	case protocol.TypeError:
 		message, _ := m["message"].(string)
+		code, _ := m["code"].(string)
 		if message == "" {
 			message = string(msg)
 		}
+		if protocol.IsAuthFailure(code) {
+			return &FatalError{Msg: message, Code: code}
+		}
+		// Legacy servers without code: match message text.
 		low := strings.ToLower(message)
 		if strings.Contains(low, "token") || strings.Contains(low, "invalid hello") {
-			return &FatalError{Msg: message}
+			if code == "" {
+				if strings.Contains(low, "token") {
+					code = protocol.CodeTokenMismatch
+				} else {
+					code = protocol.CodeInvalidHello
+				}
+			}
+			return &FatalError{Msg: message, Code: code}
 		}
 		return fmt.Errorf("server error: %s", message)
 	default:
-		if strings.Contains(string(msg), "hello_ok") {
+		if strings.Contains(string(msg), protocol.TypeHelloOK) {
 			return nil
 		}
 		return fmt.Errorf("unexpected hello response: %s", string(msg))

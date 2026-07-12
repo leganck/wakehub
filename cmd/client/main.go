@@ -46,6 +46,8 @@ func main() {
 		os.Exit(runClient(os.Args[2:]))
 	case "service":
 		os.Exit(runService(os.Args[2:]))
+	case "update":
+		os.Exit(runUpdate(os.Args[2:]))
 	case "install", "uninstall", "start", "stop", "status":
 		fmt.Fprintf(os.Stderr, "note: use %q instead of top-level %q (deprecated)\n", "service "+cmd, cmd)
 		os.Exit(runService(append([]string{cmd}, os.Args[2:]...)))
@@ -93,6 +95,7 @@ Usage:
 Commands:
   run                 Run client in foreground
   service             Manage system service (install/uninstall/start/stop/status)
+  update              Check / apply self-update from GitHub Releases
   version             Print version
   help                Show this help
 
@@ -100,7 +103,8 @@ Examples:
   %s run -server ws://192.168.1.50:8080/api/ws/client -token SECRET -key my-pc
   %s service install -server ws://192.168.1.50:8080/api/ws/client -token SECRET -key my-pc
   %s service status
-  %s service uninstall
+  %s update check
+  %s update apply
 
 Notes:
   - service install writes settings to a config file; binPath does not embed the token
@@ -108,8 +112,8 @@ Notes:
   - bare flags (e.g. -server ...) also run the client without the "run" subcommand
   - top-level install/start/stop/status still work but are deprecated; use "service ..."
 
-Run '%s run -h' or '%s service -h' for command-specific flags.
-`, exe, exe, exe, exe, exe, exe, exe)
+Run '%s run -h', '%s service -h', or '%s update -h' for command-specific flags.
+`, exe, exe, exe, exe, exe, exe, exe, exe, exe)
 }
 
 func printServiceHelp() {
@@ -273,6 +277,86 @@ func runClientCtx(ctx context.Context, args []string) int {
 		return 1
 	}
 	return 0
+}
+
+func runUpdate(args []string) int {
+	if len(args) == 0 || args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
+		exe := filepath.Base(os.Args[0])
+		fmt.Printf(`Check or install a newer wakehub-client from GitHub Releases.
+
+Usage:
+  %s update check [-repo owner/name]
+  %s update apply [-repo owner/name]
+
+Notes:
+  - default repo: %s
+  - apply replaces this executable; stop the Windows service first if it locks the file
+  - set WAKEHUB_RELEASE_REPO to override the default repo
+`, exe, exe, clientapp.DefaultReleaseRepo)
+		if len(args) == 0 {
+			return 2
+		}
+		return 0
+	}
+	sub := args[0]
+	fs := flag.NewFlagSet("update", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	repo := fs.String("repo", envOr("WAKEHUB_RELEASE_REPO", clientapp.DefaultReleaseRepo), "GitHub owner/name")
+	rest := args[1:]
+	if err := fs.Parse(rest); err != nil {
+		return 2
+	}
+	ctx := context.Background()
+	info, err := clientapp.CheckUpdate(ctx, version, *repo)
+	if err != nil && info == nil {
+		log.Printf("update check: %v", err)
+		return 1
+	}
+	if info != nil {
+		fmt.Printf("current: %s\nlatest:  %s (%s)\n", info.Current, info.Latest, info.Tag)
+		if info.HTMLURL != "" {
+			fmt.Printf("release: %s\n", info.HTMLURL)
+		}
+		if info.AssetName != "" {
+			fmt.Printf("asset:   %s\n", info.AssetName)
+		}
+	}
+	if err != nil {
+		log.Printf("note: %v", err)
+	}
+	switch sub {
+	case "check":
+		if info != nil && info.UpToDate {
+			fmt.Println("already up to date")
+			return 0
+		}
+		fmt.Println("update available (run: update apply)")
+		return 0
+	case "apply":
+		if info == nil {
+			return 1
+		}
+		if info.UpToDate {
+			fmt.Println("already up to date")
+			return 0
+		}
+		if err := clientapp.ApplyUpdate(ctx, info); err != nil {
+			log.Printf("apply: %v", err)
+			return 1
+		}
+		fmt.Printf("updated to %s — restart the client/service to use the new binary\n", info.Latest)
+		return 0
+	default:
+		fmt.Fprintf(os.Stderr, "unknown update subcommand %q\n", sub)
+		return 2
+	}
+}
+
+func envOr(key, def string) string {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		return v
+	}
+	return def
 }
 
 func runInstall(args []string) int {

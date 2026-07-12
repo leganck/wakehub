@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/leganck/wakehub/internal/protocol"
 )
 
 // Session dials the server, runs hello + read loop until disconnect or ctx cancel.
@@ -37,15 +38,15 @@ func Session(ctx context.Context, server, token, key, hostname, shutdownCmd, ver
 		_ = conn.Close()
 	}()
 
-	hello := map[string]any{
-		"type":     "hello",
-		"key":      key,
-		"token":    token,
-		"hostname": hostname,
-		"nics":     CollectNICs(),
-		"version":  version,
-		"os":       runtime.GOOS,
-		"arch":     runtime.GOARCH,
+	hello := protocol.Hello{
+		Type:     protocol.TypeHello,
+		Key:      key,
+		Token:    token,
+		Hostname: hostname,
+		NICs:     CollectNICs(),
+		Version:  version,
+		OS:       runtime.GOOS,
+		Arch:     runtime.GOARCH,
 	}
 	if err := conn.WriteJSON(hello); err != nil {
 		if ctx.Err() != nil {
@@ -90,10 +91,10 @@ func Session(ctx context.Context, server, token, key, hostname, shutdownCmd, ver
 				continue
 			}
 			switch m["type"] {
-			case "shutdown":
+			case protocol.TypeShutdown:
 				HandleShutdownMsg(m, shutdownCmd, writeJSON)
-			case "pong":
-			case "error":
+			case protocol.TypePong:
+			case protocol.TypeError:
 				log.Printf("server error message: %s", string(data))
 			default:
 				log.Printf("msg: %s", string(data))
@@ -110,10 +111,10 @@ func Session(ctx context.Context, server, token, key, hostname, shutdownCmd, ver
 		case <-done:
 			return true, fmt.Errorf("connection closed")
 		case <-ticker.C:
-			_ = writeJSON(map[string]any{
-				"type":     "ping",
-				"hostname": hostname,
-				"nics":     CollectNICs(),
+			_ = writeJSON(protocol.Ping{
+				Type:     protocol.TypePing,
+				Hostname: hostname,
+				NICs:     CollectNICs(),
 			})
 		}
 	}

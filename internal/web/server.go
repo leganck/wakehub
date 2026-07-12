@@ -22,6 +22,7 @@ type Server struct {
 	browser *mdns.Browser
 	prober  ProbeRunner
 	mux     *http.ServeMux
+	build   BuildInfo
 }
 
 // ProbeRunner is optional online probe control.
@@ -42,6 +43,9 @@ func (s *Server) Handler() http.Handler {
 }
 
 func (s *Server) routes() {
+	s.mux.HandleFunc("/healthz", s.handleHealthz)
+	s.mux.HandleFunc("/readyz", s.handleReadyz)
+	s.mux.HandleFunc("/api/version", s.handleVersion)
 	s.mux.HandleFunc("/api/status", s.handleStatus)
 	s.mux.HandleFunc("/api/settings", s.handleSettings)
 	s.mux.HandleFunc("/api/devices", s.handleDevices)
@@ -89,6 +93,10 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	st := s.store.Settings()
 	mqtt := s.devices.Bemfa().Status()
+	ver := s.build.Version
+	if ver == "" {
+		ver = "dev"
+	}
 	writeJSON(w, 200, map[string]any{
 		"bemfaConnected": mqtt.Connected,
 		"bemfaUIDSet":    strings.TrimSpace(st.BemfaUID) != "",
@@ -96,6 +104,8 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"clients":        len(s.hub.List()),
 		"devices":        len(s.store.ListDevices()),
 		"mqtt":           mqtt,
+		"version":        ver,
+		"buildTime":      s.build.BuildTime,
 	})
 }
 
