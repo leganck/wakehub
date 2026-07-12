@@ -1,6 +1,8 @@
 # WakeHub OpenWrt 打包
 
-本目录提供 **预编译二进制 → `.ipk`** 方案（`opkg-build` 兼容布局，CI 使用自带 `mkipk.sh`，无需完整 OpenWrt SDK）。
+本目录提供 **预编译二进制 → `.ipk`** 方案（CI 使用自带 `mkipk.sh`，无需完整 OpenWrt SDK）。
+
+> **包格式**：OpenWrt 24+/25、Kwrt 等新版 `opkg` 使用 **gzip 压缩的 tar**（魔数 `1f 8b`），**不是** 旧式 Debian `ar`（`!<arch>`）。`mkipk.sh` 已按官方包布局打包。
 
 ## 包内容
 

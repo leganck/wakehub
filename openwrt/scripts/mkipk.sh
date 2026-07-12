@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
-# Build an OpenWrt-compatible .ipk (same layout as OpenWrt ipkg-build).
+# Build an OpenWrt-compatible .ipk for modern opkg (OpenWrt 24+/25+, Kwrt, etc.).
+#
+# Modern format (NOT Debian ar):
+#   outer: gzip-compressed ustar containing
+#     ./debian-binary
+#     ./data.tar.gz
+#     ./control.tar.gz
+#
 # Usage: mkipk.sh <package_root> <output.ipk>
 # package_root must contain CONTROL/ and data layout (usr/, etc/, ...).
 
@@ -23,7 +30,6 @@ if [[ ! -f "$PKG_ROOT/CONTROL/control" ]]; then
   exit 1
 fi
 
-# OpenWrt/busybox opkg is picky: prefer ustar + gzip -n (no GNU tar extensions).
 TAR_BASE=(tar --format=ustar --numeric-owner --owner=0 --group=0)
 
 WORKDIR=$(mktemp -d)
@@ -45,12 +51,11 @@ for s in postinst prerm preinst postrm; do
   fi
 done
 
-# Ensure control ends with a newline (opkg control parser)
 if [[ -s "$PKG_ROOT/CONTROL/control" ]] && [[ $(tail -c1 "$PKG_ROOT/CONTROL/control" | wc -l) -eq 0 ]]; then
   printf '\n' >>"$PKG_ROOT/CONTROL/control"
 fi
 
-# Build control.tar.gz / data.tar.gz like OpenWrt: tar | gzip -n
+# Inner tarballs
 (
   cd "$PKG_ROOT/CONTROL"
   "${TAR_BASE[@]}" -cf - . | gzip -n - >"$WORKDIR/control.tar.gz"
@@ -62,30 +67,41 @@ fi
 
 printf '2.0\n' >"$WORKDIR/debian-binary"
 
-# Assemble ar archive (member order: debian-binary, control.tar.gz, data.tar.gz)
+# Outer package: gzip(tar of ./debian-binary ./data.tar.gz ./control.tar.gz)
+# Matches OpenWrt 24.10+ official package layout (not classic ar/deb).
 rm -f "$OUT_IPK"
 (
   cd "$WORKDIR"
-  # -c create, -r replace/insert, avoid thin archives
-  if ar cqrD "$OUT_IPK" debian-binary control.tar.gz data.tar.gz 2>/dev/null; then
-    :
-  elif ar cqr "$OUT_IPK" debian-binary control.tar.gz data.tar.gz 2>/dev/null; then
-    :
-  else
-    ar cr "$OUT_IPK" debian-binary control.tar.gz data.tar.gz
-  fi
+  "${TAR_BASE[@]}" -cf - ./debian-binary ./data.tar.gz ./control.tar.gz \
+    | gzip -n - >"$OUT_IPK"
 )
 
-# Sanity: must be a readable ar with 3 members
-mapfile -t members < <(ar t "$OUT_IPK")
-if [[ ${#members[@]} -lt 3 ]]; then
-  echo "invalid ipk (ar members: ${members[*]-none})" >&2
+# Sanity checks
+if [[ ! -s "$OUT_IPK" ]]; then
+  echo "empty output $OUT_IPK" >&2
   exit 1
 fi
-if [[ "${members[0]}" != *debian-binary* || "${members[1]}" != *control.tar.gz* || "${members[2]}" != *data.tar.gz* ]]; then
-  echo "unexpected ar member order: ${members[*]}" >&2
-  exit 1
+# Must start with gzip magic, not ar magic
+magic=$(od -An -tx1 -N 2 "$OUT_IPK" 2>/dev/null | tr -d ' \n' || true)
+if command -v python3 >/dev/null 2>&1; then
+  python3 - "$OUT_IPK" <<'PY'
+import gzip, sys, tarfile, io
+path = sys.argv[1]
+raw = open(path, "rb").read(2)
+if raw != b"\x1f\x8b":
+    raise SystemExit(f"expected gzip magic, got {raw!r}")
+data = gzip.decompress(open(path, "rb").read())
+tf = tarfile.open(fileobj=io.BytesIO(data), mode="r:")
+names = tf.getnames()
+need = {"./debian-binary", "./data.tar.gz", "./control.tar.gz"}
+if not need.issubset(set(names)):
+    # also accept without ./
+    alt = {n.lstrip("./") for n in names}
+    if not {"debian-binary", "data.tar.gz", "control.tar.gz"}.issubset(alt):
+        raise SystemExit(f"unexpected outer members: {names}")
+print("ok members:", names)
+PY
 fi
 
-echo "built $OUT_IPK ($(wc -c <"$OUT_IPK") bytes)"
+echo "built $OUT_IPK ($(wc -c <"$OUT_IPK") bytes) [openwrt gzip-tar ipk]"
 ls -la "$OUT_IPK"
