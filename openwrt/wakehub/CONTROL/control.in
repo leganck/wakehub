@@ -2,10 +2,8 @@ Package: wakehub
 Version: __VERSION__
 Depends: ca-bundle
 Section: net
-Category: Network
 Architecture: __ARCH__
 Maintainer: WakeHub maintainers
 Source: https://github.com/leganck/wakehub
-Description: WakeHub LAN power hub server (WOL + Bemfa MQTT + client WS).
- Manage devices via the built-in Web UI; enable/configure globals via LuCI
- (luci-app-wakehub) or /etc/config/wakehub.
+Description: WakeHub LAN power hub (WOL, Bemfa MQTT, client WS). Web UI for devices; LuCI for service globals.
+
