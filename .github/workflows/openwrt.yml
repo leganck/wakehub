@@ -1,0 +1,77 @@
+name: OpenWrt IPK
+
+on:
+  push:
+    branches: [master, main]
+    tags: ['v*']
+  pull_request:
+    branches: [master, main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-ipk:
+    name: Build OpenWrt IPKs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y binutils
+
+      - name: Resolve version
+        id: ver
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            V="${GITHUB_REF_NAME#v}"
+          else
+            V=$(git describe --tags --match 'v*' 2>/dev/null | sed 's/^v//' || true)
+            if [[ -z "$V" ]]; then
+              V="0.0.0-snapshot.${GITHUB_SHA::7}"
+            else
+              V="${V}-snapshot.${GITHUB_SHA::7}"
+            fi
+          fi
+          # opkg-friendly: replace + from git describe dirty/semver metadata
+          V="${V//+/-}"
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "Building version: $V"
+
+      - name: Build IPK packages
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          OUT_DIR: dist/openwrt
+        run: |
+          chmod +x openwrt/scripts/*.sh
+          ./openwrt/scripts/build-ipk.sh
+
+      - name: List artifacts
+        run: ls -lah dist/openwrt/
+
+      - name: Upload IPK artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wakehub-openwrt-ipk
+          path: dist/openwrt/*
+          if-no-files-found: error
+
+      - name: Attach IPKs to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/openwrt/*
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

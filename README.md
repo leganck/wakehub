@@ -105,6 +105,28 @@ docker compose -f deploy/docker-compose.macvlan.yml up -d --build
 - `GET /api/mqtt` · `GET|DELETE /api/mqtt/logs`
 - `WS /api/ws/client`
 
+## OpenWrt
+
+预编译 `.ipk`（服务端 + LuCI），无需完整 OpenWrt SDK。详见 [`openwrt/README.md`](openwrt/README.md)。
+
+```bash
+# 本地打包（Linux/WSL，需 go + binutils）
+./openwrt/scripts/build-ipk.sh
+# 产物：dist/openwrt/wakehub_<ver>_<arch>.ipk
+#       dist/openwrt/luci-app-wakehub_<ver>_all.ipk
+```
+
+路由安装示例：
+
+```sh
+opkg install /tmp/wakehub_*_mipsel_24kc.ipk
+opkg install /tmp/luci-app-wakehub_*_all.ipk
+# LuCI：服务 → WakeHub → 启用并保存
+# 设备管理：http://路由器IP:8080/
+```
+
+GitHub Actions：`.github/workflows/openwrt.yml`（push/PR 上传 Artifact；`v*` 标签附带到 Release）。
+
 ## 发布（GoReleaser / GitHub Actions）
 
 | 文件 | 说明 |
@@ -112,6 +134,7 @@ docker compose -f deploy/docker-compose.macvlan.yml up -d --build
 | `.goreleaser.yaml` | 构建 `wakehub-server` / `wakehub-client` 多平台产物，并推送 GHCR 镜像 |
 | `.github/workflows/release.yml` | `master`/`main` 推送做 snapshot 构建；`v*` 标签正式发布 |
 | `.github/workflows/ci.yml` | PR/分支：`go vet` / `test` / `build` |
+| `.github/workflows/openwrt.yml` | 交叉编译并打包 OpenWrt `wakehub` / `luci-app-wakehub` ipk |
 | `Dockerfile.release` | GoReleaser 打包的运行镜像 |
 
 模块依赖直接写入 `go.mod`（`github.com/leganck/bemfa-go v1.1.0`），CI 不再改写 `go.mod`，避免 GoReleaser dirty tree。
@@ -126,6 +149,7 @@ git push origin v0.1.1
 产物：
 
 - GitHub Release：各平台 `wakehub-server` / `wakehub-client` 压缩包
+- GitHub Release：OpenWrt `.ipk`（多架构 `wakehub` + `luci-app-wakehub`）
 - 容器：`ghcr.io/leganck/wakehub:v0.1.1`（含 `latest` multi-arch manifest）
 
 ### 使用发布镜像
@@ -136,3 +160,4 @@ docker run -d --name wakehub-server \
   -v "$PWD/data:/app/data" \
   ghcr.io/leganck/wakehub:latest
 ```
+

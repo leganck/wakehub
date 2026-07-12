@@ -1,0 +1,9 @@
+#!/bin/sh
+[ -n "${IPKG_INSTROOT}" ] && exit 0
+
+if [ -x /etc/init.d/wakehub ]; then
+	/etc/init.d/wakehub stop 2>/dev/null || true
+	/etc/init.d/wakehub disable 2>/dev/null || true
+fi
+
+exit 0

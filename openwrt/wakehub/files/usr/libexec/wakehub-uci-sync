@@ -1,0 +1,112 @@
+#!/bin/sh
+# Sync UCI global settings into WakeHub config.json (preserve devices[]).
+# Prefer jsonfilter when available; fall back to full rewrite with empty devices
+# only when the config file is missing.
+
+. /lib/functions.sh 2>/dev/null || true
+
+CONFIG_PATH=
+LISTEN_PORT=
+BEMFA_UID=
+CLIENT_TOKEN=
+WS_PATH=
+
+load_uci() {
+	if [ -f /etc/config/wakehub ] && type config_load >/dev/null 2>&1; then
+		config_load wakehub
+		config_get CONFIG_PATH main config_path /etc/wakehub/config.json
+		config_get LISTEN_PORT main listen_port 8080
+		config_get BEMFA_UID main bemfa_uid ""
+		config_get CLIENT_TOKEN main client_token ""
+		config_get WS_PATH main ws_path /api/ws/client
+	else
+		CONFIG_PATH="${CONFIG_PATH:-/etc/wakehub/config.json}"
+		LISTEN_PORT="${LISTEN_PORT:-8080}"
+		WS_PATH="${WS_PATH:-/api/ws/client}"
+	fi
+
+	[ -n "$CONFIG_PATH" ] || CONFIG_PATH=/etc/wakehub/config.json
+	[ -n "$LISTEN_PORT" ] || LISTEN_PORT=8080
+	[ -n "$WS_PATH" ] || WS_PATH=/api/ws/client
+}
+
+json_escape() {
+	# Escape for JSON string values
+	printf '%s' "$1" | sed \
+		-e 's/\\/\\\\/g' \
+		-e 's/"/\\"/g' \
+		-e 's/	/\\t/g' \
+		-e ':a;N;$!ba;s/\n/\\n/g' 2>/dev/null || printf '%s' "$1"
+}
+
+write_config() {
+	local devices="$1"
+	local listen bemfa token wspath
+	local dir tmp
+
+	listen=$(json_escape ":${LISTEN_PORT}")
+	bemfa=$(json_escape "$BEMFA_UID")
+	token=$(json_escape "$CLIENT_TOKEN")
+	wspath=$(json_escape "$WS_PATH")
+
+	[ -n "$devices" ] || devices='[]'
+
+	dir=$(dirname "$CONFIG_PATH")
+	mkdir -p "$dir"
+	tmp="${CONFIG_PATH}.tmp.$$"
+
+	cat >"$tmp" <<EOF
+{
+  "settings": {
+    "listen": "${listen}",
+    "bemfaUID": "${bemfa}",
+    "clientToken": "${token}",
+    "wsPath": "${wspath}"
+  },
+  "devices": ${devices}
+}
+EOF
+	mv "$tmp" "$CONFIG_PATH"
+}
+
+extract_devices() {
+	local cfg="$1"
+	local raw
+
+	if command -v jsonfilter >/dev/null 2>&1; then
+		# jsonfilter prints the value; for arrays it may dump JSON text
+		raw=$(jsonfilter -i "$cfg" -e '@.devices' 2>/dev/null) || raw=
+		if [ -n "$raw" ]; then
+			case "$raw" in
+			\[*) printf '%s' "$raw"; return 0 ;;
+			esac
+		fi
+	fi
+
+	if command -v jq >/dev/null 2>&1; then
+		jq -c '.devices // []' "$cfg" 2>/dev/null && return 0
+	fi
+
+	# Last resort: keep existing file untouched by returning empty sentinel
+	return 1
+}
+
+main() {
+	load_uci
+
+	if [ ! -f "$CONFIG_PATH" ]; then
+		write_config '[]'
+		return 0
+	fi
+
+	devices=$(extract_devices "$CONFIG_PATH") || {
+		# Could not parse devices — do not clobber device list.
+		# Only ensure listen override is applied via process -listen flag.
+		echo "wakehub-uci-sync: keep existing $CONFIG_PATH (devices extract failed)" >&2
+		return 0
+	}
+
+	write_config "$devices"
+}
+
+main "$@"

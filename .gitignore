@@ -11,8 +11,9 @@
 .gocache/
 .env
 
-# GoReleaser
+# GoReleaser / OpenWrt IPK
 /dist/
+
 
 # OS
 .DS_Store

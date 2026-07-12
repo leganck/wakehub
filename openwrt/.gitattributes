@@ -1,0 +1,9 @@
+# Shell/init scripts must use LF for OpenWrt/BusyBox
+* text=auto
+*.sh text eol=lf
+**/init.d/** text eol=lf
+**/libexec/** text eol=lf
+**/CONTROL/postinst text eol=lf
+**/CONTROL/prerm text eol=lf
+**/CONTROL/preinst text eol=lf
+**/CONTROL/postrm text eol=lf

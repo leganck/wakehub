@@ -1,0 +1,9 @@
+{
+  "settings": {
+    "listen": ":8080",
+    "bemfaUID": "",
+    "clientToken": "",
+    "wsPath": "/api/ws/client"
+  },
+  "devices": []
+}

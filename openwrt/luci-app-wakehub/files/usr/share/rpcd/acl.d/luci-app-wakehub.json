@@ -1,0 +1,21 @@
+{
+	"luci-app-wakehub": {
+		"description": "Grant access to WakeHub configuration",
+		"read": {
+			"uci": [ "wakehub" ],
+			"ubus": {
+				"service": [ "list" ]
+			},
+			"file": {
+				"/etc/init.d/wakehub": [ "exec" ],
+				"/usr/bin/wakehub-server": [ "list" ]
+			}
+		},
+		"write": {
+			"uci": [ "wakehub" ],
+			"file": {
+				"/etc/init.d/wakehub": [ "exec" ]
+			}
+		}
+	}
+}

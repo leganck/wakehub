@@ -1,0 +1,12 @@
+#!/bin/sh
+[ -n "${IPKG_INSTROOT}" ] && exit 0
+
+chmod 755 /etc/init.d/wakehub 2>/dev/null || true
+chmod 755 /usr/libexec/wakehub-uci-sync 2>/dev/null || true
+chmod 755 /usr/bin/wakehub-server 2>/dev/null || true
+
+if [ -x /etc/init.d/wakehub ]; then
+	/etc/init.d/wakehub enable 2>/dev/null || true
+fi
+
+exit 0

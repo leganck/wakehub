@@ -1,0 +1,9 @@
+Package: luci-app-wakehub
+Version: __VERSION__
+Depends: wakehub, luci-base
+Section: luci
+Category: LuCI
+Architecture: all
+Maintainer: WakeHub maintainers
+Source: https://github.com/leganck/wakehub
+Description: LuCI support for WakeHub (enable service and global settings).

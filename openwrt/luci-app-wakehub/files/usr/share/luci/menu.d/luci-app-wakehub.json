@@ -1,0 +1,14 @@
+{
+	"admin/services/wakehub": {
+		"title": "WakeHub",
+		"order": 90,
+		"action": {
+			"type": "view",
+			"path": "wakehub/settings"
+		},
+		"depends": {
+			"acl": [ "luci-app-wakehub" ],
+			"uci": { "wakehub": true }
+		}
+	}
+}
