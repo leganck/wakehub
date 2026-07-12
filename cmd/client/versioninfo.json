@@ -1,0 +1,41 @@
+{
+  "FixedFileInfo": {
+    "FileVersion": {
+      "Major": 0,
+      "Minor": 1,
+      "Patch": 7,
+      "Build": 0
+    },
+    "ProductVersion": {
+      "Major": 0,
+      "Minor": 1,
+      "Patch": 7,
+      "Build": 0
+    },
+    "FileFlagsMask": "3f",
+    "FileFlags ": "00",
+    "FileOS": "040004",
+    "FileType": "01",
+    "FileSubType": "00"
+  },
+  "StringFileInfo": {
+    "Comments": "Open-source WakeHub LAN client (github.com/leganck/wakehub). Connects to wakehub-server for NIC report and remote power control. Not malware.",
+    "CompanyName": "leganck / WakeHub",
+    "FileDescription": "WakeHub Client — LAN power agent (WOL companion)",
+    "FileVersion": "0.1.7.0",
+    "InternalName": "wakehub-client",
+    "LegalCopyright": "MIT License — https://github.com/leganck/wakehub",
+    "LegalTrademarks": "",
+    "OriginalFilename": "wakehub-client.exe",
+    "PrivateBuild": "",
+    "ProductName": "WakeHub",
+    "ProductVersion": "0.1.7.0",
+    "SpecialBuild": ""
+  },
+  "VarFileInfo": {
+    "Translation": {
+      "LangID": "0409",
+      "CharsetID": "04B0"
+    }
+  }
+}

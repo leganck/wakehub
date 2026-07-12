@@ -8,6 +8,8 @@
 - `cmd/server`：Web 管理 / REST / 巴法 MQTT / 唤醒关机 / 客户端 WS / mDNS 浏览
 - `cmd/client`：连接服务端、上报网卡、执行关机、mDNS 广播、安装系统服务
 
+> **Windows 杀软误报**：`wakehub-client.exe` 可能被标为 `CobaltStrike` 等并**自动删除**。这是 Go 客户端（长连接 + 服务 + 关机命令）的常见误报。见 [`docs/windows-false-positive.md`](docs/windows-false-positive.md)。
+
 ## 依赖
 
 - 默认使用已发布模块：`github.com/leganck/bemfa-go v1.1.0`
