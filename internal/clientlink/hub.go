@@ -131,6 +131,13 @@ func writeWSJSON(conn *websocket.Conn, v any) error {
 	return conn.WriteMessage(websocket.TextMessage, b)
 }
 
+// writeEntryJSON serializes writes on a connected client (gorilla/websocket is not concurrent-safe).
+func writeEntryJSON(e *connEntry, v any) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return writeWSJSON(e.conn, v)
+}
+
 func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -177,7 +184,7 @@ func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
 	h.clients[hello.Key] = entry
 	h.mu.Unlock()
 	h.notify()
-	_ = writeWSJSON(conn, protocol.NewHelloOK())
+	_ = writeEntryJSON(entry, protocol.NewHelloOK())
 
 	conn.SetPongHandler(func(string) error {
 		h.mu.Lock()
@@ -205,7 +212,7 @@ func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
 		t, _ := m["type"].(string)
 		switch t {
 		case protocol.TypePing:
-			_ = writeWSJSON(conn, protocol.NewPong())
+			_ = writeEntryJSON(entry, protocol.NewPong())
 			if nics, ok := m["nics"]; ok {
 				b, _ := json.Marshal(nics)
 				var list []config.NICInfo
