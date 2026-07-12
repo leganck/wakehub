@@ -1,5 +1,7 @@
 # syntax=docker/dockerfile:1
 FROM golang:1.25-alpine AS build
+# Honor go.mod toolchain (e.g. 1.25.12) when image tag is only major.minor.
+ENV GOTOOLCHAIN=auto
 WORKDIR /src
 RUN apk add --no-cache git ca-certificates
 COPY go.mod go.sum ./
