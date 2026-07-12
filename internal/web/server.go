@@ -115,10 +115,28 @@ func (s *Server) handleMQTTLogs(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
+		// Auto-generate client token when empty (first run / cleared config).
+		tokenGenerated := false
+		if tok, gen, err := s.store.EnsureClientToken(); err != nil {
+			writeJSON(w, 500, map[string]any{"error": err.Error()})
+			return
+		} else if gen {
+			tokenGenerated = true
+			s.hub.SetToken(tok)
+		}
 		st := s.store.Settings()
-		writeJSON(w, 200, st)
+		writeJSON(w, 200, map[string]any{
+			"listen":          st.Listen,
+			"bemfaUID":        st.BemfaUID,
+			"clientToken":     st.ClientToken,
+			"wsPath":          st.WSPath,
+			"tokenGenerated":  tokenGenerated,
+		})
 	case http.MethodPut:
-		var body config.Settings
+		var body struct {
+			config.Settings
+			RegenerateToken bool `json:"regenerateToken"`
+		}
 		if err := readJSON(r, &body); err != nil {
 			writeJSON(w, 400, map[string]any{"error": err.Error()})
 			return
@@ -126,7 +144,11 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		err := s.store.UpdateSettings(func(st *config.Settings) error {
 			st.Listen = body.Listen
 			st.BemfaUID = strings.TrimSpace(body.BemfaUID)
-			st.ClientToken = body.ClientToken
+			if body.RegenerateToken || strings.TrimSpace(body.ClientToken) == "" {
+				st.ClientToken = config.RandomToken(32)
+			} else {
+				st.ClientToken = body.ClientToken
+			}
 			if body.WSPath != "" {
 				st.WSPath = body.WSPath
 			}
@@ -136,11 +158,12 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 500, map[string]any{"error": err.Error()})
 			return
 		}
+		st := s.store.Settings()
 		if err := s.devices.OnSettingsChanged(); err != nil {
-			writeJSON(w, 200, map[string]any{"settings": s.store.Settings(), "warning": err.Error()})
+			writeJSON(w, 200, map[string]any{"settings": st, "warning": err.Error()})
 			return
 		}
-		writeJSON(w, 200, map[string]any{"settings": s.store.Settings()})
+		writeJSON(w, 200, map[string]any{"settings": st})
 	default:
 		writeJSON(w, 405, map[string]any{"error": "method not allowed"})
 	}

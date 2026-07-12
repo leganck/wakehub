@@ -47,6 +47,13 @@ func main() {
 		})
 	}
 
+	if tok, generated, err := store.EnsureClientToken(); err != nil {
+		log.Printf("client token ensure warning: %v", err)
+	} else if generated {
+		log.Printf("client token was empty; generated random token (see Web UI settings)")
+		_ = tok
+	}
+
 	hub := clientlink.NewHub(store.Settings().ClientToken)
 	svc := device.NewService(store, hub)
 	if err := svc.StartBemfa(); err != nil {

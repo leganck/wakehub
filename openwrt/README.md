@@ -82,11 +82,13 @@ LuCI：**服务 → WakeHub**（启用并保存应用）。
 | 选项 | 说明 |
 |------|------|
 | `enabled` | `1` 启动服务 |
-| `listen_port` | HTTP 端口（默认 8080） |
+| `listen_port` | **运行端口**（HTTP/WebSocket，默认 8080；LuCI 可改） |
 | `config_path` | JSON 配置路径 |
 | `bemfa_uid` | 巴法私钥 |
 | `client_token` | 客户端 WS Token |
 | `ws_path` | WS 路径 |
+
+启动时 `/etc/init.d/wakehub` 使用 `-listen :$listen_port`，与 LuCI「运行端口」一致。
 
 启动时 `/usr/libexec/wakehub-uci-sync` 将上述全局项写入 `config.json` 的 `settings`，并尽量保留已有 `devices[]`。
 

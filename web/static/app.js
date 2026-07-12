@@ -309,15 +309,79 @@ async function loadDiscover() {
 }
 $('#btnRefreshDiscover').onclick = () => loadDiscover();
 
+function listenPortFromSettings(listen) {
+  const s = String(listen || '').trim();
+  if (!s) return window.location.port || '8080';
+  // ":8080" or "0.0.0.0:8080" or "8080"
+  const m = s.match(/:(\d+)\s*$/);
+  if (m) return m[1];
+  if (/^\d+$/.test(s)) return s;
+  return window.location.port || '8080';
+}
+
+function wsURLFromSettings(listen, wsPath) {
+  const host = window.location.hostname || '127.0.0.1';
+  const port = listenPortFromSettings(listen);
+  let path = (wsPath || '/api/ws/client').trim() || '/api/ws/client';
+  if (!path.startsWith('/')) path = '/' + path;
+  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  // Prefer current page host (reachable from browser); port from listen setting
+  const pagePort = window.location.port;
+  const usePort = port || pagePort || '8080';
+  return `${proto}//${host}:${usePort}${path}`;
+}
+
+function shellQuote(s) {
+  // single-quote for POSIX; also fine for display on Windows when path has no quotes needed
+  return "'" + String(s ?? '').replace(/'/g, `'\\''`) + "'";
+}
+
+function updateClientCommands() {
+  const f = $('#settingsForm');
+  if (!f) return;
+  const token = (f.clientToken.value || '').trim();
+  const key = ($('#clientKeyInput')?.value || 'my-pc').trim() || 'my-pc';
+  const server = wsURLFromSettings(f.listen.value, f.wsPath.value);
+  const runEl = $('#clientCmdRun');
+  const instEl = $('#clientCmdInstall');
+  if (!runEl || !instEl) return;
+
+  if (!token) {
+    runEl.textContent = '# Token 为空：打开本页或保存设置后将自动生成';
+    instEl.textContent = '# Token 为空：打开本页或保存设置后将自动生成';
+    return;
+  }
+
+  // Cross-platform run (binary name; user may prefix path)
+  runEl.textContent =
+    `wakehub-client run -server ${server} -token ${token} -key ${key}`;
+
+  // Install hints for both OS
+  instEl.textContent =
+    `# Windows（管理员 PowerShell / CMD）\n` +
+    `wakehub-client.exe install -server ${server} -token ${token} -key ${key}\n\n` +
+    `# Linux（root）\n` +
+    `./wakehub-client install -server ${shellQuote(server)} -token ${shellQuote(token)} -key ${shellQuote(key)}`;
+}
+
 async function loadSettings() {
   const st = await api('/api/settings');
   const f = $('#settingsForm');
   f.listen.value = st.listen || '';
   f.bemfaUID.value = st.bemfaUID || '';
   f.clientToken.value = st.clientToken || '';
-  f.wsPath.value = st.wsPath || '';
+  f.wsPath.value = st.wsPath || '/api/ws/client';
+
+  const hint = $('#tokenHint');
+  if (hint) {
+    hint.textContent = st.tokenGenerated
+      ? '已自动生成随机 Token 并写入配置，请使用下方命令连接客户端。'
+      : '为空时服务端会自动生成随机 Token 并持久化。保存空 Token 也会重新生成。';
+  }
+  updateClientCommands();
 }
-$('#settingsForm').addEventListener('submit', async (ev) => {
+
+$('#settingsForm')?.addEventListener('submit', async (ev) => {
   ev.preventDefault();
   const f = ev.target;
   const body = {
@@ -327,10 +391,72 @@ $('#settingsForm').addEventListener('submit', async (ev) => {
     wsPath: f.wsPath.value,
   };
   const res = await api('/api/settings', { method: 'PUT', body: JSON.stringify(body) });
+  const st = res.settings || res;
+  if (st.clientToken !== undefined) f.clientToken.value = st.clientToken || '';
+  if (st.listen !== undefined) f.listen.value = st.listen || '';
+  if (st.wsPath !== undefined) f.wsPath.value = st.wsPath || '';
   if (res.warning) alert('已保存，但巴法重连警告: ' + res.warning);
   else alert('已保存');
+  updateClientCommands();
   refreshStatus();
   if (activeTab() === 'mqtt') loadMQTT();
+});
+
+$('#btnRegenToken')?.addEventListener('click', async () => {
+  if (!confirm('重新生成 Token 后，旧客户端需更新参数才能连接，继续？')) return;
+  const f = $('#settingsForm');
+  const body = {
+    listen: f.listen.value,
+    bemfaUID: f.bemfaUID.value,
+    clientToken: f.clientToken.value,
+    wsPath: f.wsPath.value,
+    regenerateToken: true,
+  };
+  const res = await api('/api/settings', { method: 'PUT', body: JSON.stringify(body) });
+  const st = res.settings || res;
+  f.clientToken.value = st.clientToken || '';
+  updateClientCommands();
+  const hint = $('#tokenHint');
+  if (hint) hint.textContent = '已重新生成 Token 并保存。';
+  if (res.warning) alert('Token 已更新，但巴法重连警告: ' + res.warning);
+});
+
+['listen', 'clientToken', 'wsPath'].forEach((name) => {
+  const el = $(`#settingsForm [name="${name}"]`);
+  if (el) el.addEventListener('input', updateClientCommands);
+});
+$('#clientKeyInput')?.addEventListener('input', updateClientCommands);
+
+document.querySelectorAll('.btn-copy').forEach((btn) => {
+  btn.addEventListener('click', async () => {
+    const id = btn.getAttribute('data-copy');
+    const pre = id ? document.getElementById(id) : null;
+    const text = pre ? pre.textContent : '';
+    if (!text || text.startsWith('#')) {
+      alert('暂无可用命令');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      const old = btn.textContent;
+      btn.textContent = '已复制';
+      setTimeout(() => {
+        btn.textContent = old;
+      }, 1500);
+    } catch {
+      // fallback
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      btn.textContent = '已复制';
+      setTimeout(() => {
+        btn.textContent = '复制';
+      }, 1500);
+    }
+  });
 });
 
 function escapeHtml(s) {

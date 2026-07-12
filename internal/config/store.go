@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -139,6 +140,22 @@ func (s *Store) UpdateSettings(fn func(*Settings) error) error {
 		s.data.Settings.WSPath = DefaultWSPath
 	}
 	return s.saveLocked()
+}
+
+// EnsureClientToken generates and persists a random client token when empty.
+// Returns (token, newlyGenerated, error).
+func (s *Store) EnsureClientToken() (string, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if strings.TrimSpace(s.data.Settings.ClientToken) != "" {
+		return s.data.Settings.ClientToken, false, nil
+	}
+	tok := RandomToken(32)
+	s.data.Settings.ClientToken = tok
+	if err := s.saveLocked(); err != nil {
+		return "", false, err
+	}
+	return tok, true, nil
 }
 
 func (s *Store) ListDevices() []Device {

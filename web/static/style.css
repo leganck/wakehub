@@ -508,6 +508,61 @@ input:focus {
   border-top: 1px solid var(--divider-soft);
 }
 
+.input-row {
+  display: flex;
+  gap: var(--space-xs);
+  align-items: stretch;
+}
+
+.input-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.input-row .btn {
+  flex: 0 0 auto;
+}
+
+.client-cmd-card {
+  margin-top: 0;
+}
+
+.cmd-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cmd-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.cmd-pre {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--hairline);
+  background: #1d1d1f;
+  color: #f5f5f7;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-all;
+  overflow-x: auto;
+}
+
+.client-cmd-card code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--surface-pearl);
+}
+
 .fine-print {
   margin: 0;
   font-size: 12px;

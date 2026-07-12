@@ -1,7 +1,9 @@
 config wakehub 'main'
 	option enabled '0'
+	# HTTP/Web 管理与客户端 WS 监听端口（LuCI「运行端口」）
 	option listen_port '8080'
 	option config_path '/etc/wakehub/config.json'
 	option bemfa_uid ''
 	option client_token ''
 	option ws_path '/api/ws/client'
+

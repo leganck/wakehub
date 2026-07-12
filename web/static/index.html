@@ -125,7 +125,11 @@
           </label>
           <label class="field">
             <span class="field-label">客户端 Token</span>
-            <input name="clientToken" placeholder="可选" autocomplete="off" />
+            <div class="input-row">
+              <input name="clientToken" placeholder="未设置将自动生成" autocomplete="off" spellcheck="false" />
+              <button type="button" id="btnRegenToken" class="btn btn-utility" title="重新生成随机 Token">随机生成</button>
+            </div>
+            <p id="tokenHint" class="fine-print">为空时服务端会自动生成随机 Token 并持久化。</p>
           </label>
           <label class="field">
             <span class="field-label">WS 路径</span>
@@ -136,6 +140,30 @@
             <p class="fine-print">修改监听地址需重启服务端进程后生效。</p>
           </div>
         </form>
+
+        <h3 class="block-title">客户端连接命令</h3>
+        <div class="card form-card client-cmd-card">
+          <p class="section-desc" style="margin:0 0 12px">根据当前主机与 Token 生成，可一键复制到 PC 运行或安装服务。</p>
+          <label class="field">
+            <span class="field-label">客户端 Key（标识本机，可改）</span>
+            <input id="clientKeyInput" value="my-pc" autocomplete="off" spellcheck="false" />
+          </label>
+          <div class="cmd-block">
+            <div class="cmd-head">
+              <span class="field-label">运行（Windows / Linux / macOS）</span>
+              <button type="button" class="btn btn-utility btn-copy" data-copy="clientCmdRun">复制</button>
+            </div>
+            <pre id="clientCmdRun" class="cmd-pre"></pre>
+          </div>
+          <div class="cmd-block">
+            <div class="cmd-head">
+              <span class="field-label">安装为系统服务（Windows 管理员 / Linux root）</span>
+              <button type="button" class="btn btn-utility btn-copy" data-copy="clientCmdInstall">复制</button>
+            </div>
+            <pre id="clientCmdInstall" class="cmd-pre"></pre>
+          </div>
+          <p class="fine-print">将 <code>wakehub-client</code> 换成实际可执行文件路径；Token 变更后需更新客户端参数。</p>
+        </div>
       </section>
     </main>
   </div>
