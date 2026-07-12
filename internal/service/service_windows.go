@@ -18,22 +18,42 @@ func IsWindowsService() bool {
 	return err == nil && ok
 }
 
-// Install registers a Windows service and starts it.
-// binCmd is the full command line (exe + args) for sc.exe binPath=.
-func Install(name, display, binCmd string) error {
-	// sc.exe requires: binPath= "C:\path\exe args..."
-	args := []string{"create", name, "binPath=", binCmd, "start=", "auto", "DisplayName=", display}
-	out, err := exec.Command("sc.exe", args...).CombinedOutput()
+// Exists reports whether a service with the given name is registered.
+func Exists(name string) bool {
+	out, err := exec.Command("sc.exe", "query", name).CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("%v: %s", err, string(out))
+		return false
+	}
+	return strings.Contains(string(out), "SERVICE_NAME")
+}
+
+// Install registers or updates a Windows service and starts it.
+// binCmd is the full command line (exe + args) for sc.exe binPath=.
+// If the service already exists, binPath is updated and the service is restarted.
+func Install(name, display, binCmd string) error {
+	if Exists(name) {
+		_, _ = exec.Command("sc.exe", "stop", name).CombinedOutput()
+		time.Sleep(500 * time.Millisecond)
+		out, err := exec.Command("sc.exe", "config", name, "binPath=", binCmd, "DisplayName=", display, "start=", "auto").CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("update service: %v: %s", err, string(out))
+		}
+	} else {
+		args := []string{"create", name, "binPath=", binCmd, "start=", "auto", "DisplayName=", display}
+		out, err := exec.Command("sc.exe", args...).CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("%v: %s", err, string(out))
+		}
 	}
 	_, _ = exec.Command("sc.exe", "description", name, "WakeHub shutdown client for wakehub-server").CombinedOutput()
 	// Restart on failure so transient crashes recover automatically.
 	_, _ = exec.Command("sc.exe", "failure", name, "reset=", "86400", "actions=", "restart/5000/restart/10000/restart/30000").CombinedOutput()
 	_, _ = exec.Command("sc.exe", "failureflag", name, "1").CombinedOutput()
 	if out, err := exec.Command("sc.exe", "start", name).CombinedOutput(); err != nil {
-		// Create succeeded; surface start failure so the user can check status/logs.
-		return fmt.Errorf("service created but start failed: %v: %s", err, string(out))
+		// Already running is OK after reconfigure race.
+		if !strings.Contains(string(out), "1056") {
+			return fmt.Errorf("service start failed: %v: %s", err, string(out))
+		}
 	}
 	return nil
 }

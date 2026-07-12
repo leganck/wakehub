@@ -3,6 +3,7 @@ package clientlink
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"sync"
@@ -108,7 +109,12 @@ func (h *Hub) Shutdown(key string) error {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	msg, _ := json.Marshal(ServerMsg{Type: "shutdown"})
+	// requestId lets the client dedupe and ack before powering off.
+	reqID := fmt.Sprintf("%s-%d", key, time.Now().UnixNano())
+	msg, _ := json.Marshal(map[string]any{
+		"type":      "shutdown",
+		"requestId": reqID,
+	})
 	_ = c.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 	return c.conn.WriteMessage(websocket.TextMessage, msg)
 }
@@ -206,18 +212,23 @@ func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
 				}
 			case "shutdown_ack", "shutdown_err":
 				errMsg, _ := m["error"].(string)
+				status, _ := m["status"].(string)
+				reqID, _ := m["requestId"].(string)
 				h.mu.Lock()
 				if e, ok := h.clients[hello.Key]; ok {
 					e.info.LastEvent = t
+					if status != "" {
+						e.info.LastEvent = t + ":" + status
+					}
 					e.info.LastError = errMsg
 					e.info.LastEventAt = time.Now().Unix()
 					e.info.LastSeen = time.Now().Unix()
 				}
 				h.mu.Unlock()
 				if t == "shutdown_ack" {
-					log.Printf("client %s shutdown_ack", hello.Key)
+					log.Printf("client %s shutdown_ack status=%s requestId=%s", hello.Key, status, reqID)
 				} else {
-					log.Printf("client %s shutdown_err: %s", hello.Key, errMsg)
+					log.Printf("client %s shutdown_err requestId=%s: %s", hello.Key, reqID, errMsg)
 				}
 			default:
 				// ignore unknown types

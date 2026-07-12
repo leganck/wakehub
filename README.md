@@ -30,11 +30,15 @@ go run ./cmd/client run -server ws://<server-ip>:8080/api/ws/client -key my-pc
 安装为系统服务：
 
 ```bash
-# Windows（管理员）
-bin\wakehub-client.exe service install -server ws://192.168.1.50:8080/api/ws/client -key my-pc
+# Windows（管理员）— 参数写入配置文件，服务 binPath 不含 token
+bin\wakehub-client.exe service install -server ws://192.168.1.50:8080/api/ws/client -token SECRET -key my-pc
 
 # Linux（root）
-./wakehub-client service install -server ws://192.168.1.50:8080/api/ws/client -key my-pc
+./wakehub-client service install -server ws://192.168.1.50:8080/api/ws/client -token SECRET -key my-pc
+
+# 再次 install 可更新配置（幂等，无需先 uninstall）
+# Windows 配置: %ProgramData%\wakehub-client\config.json
+# Linux 配置:   /etc/wakehub-client/config.json
 ```
 
 ## Docker Compose

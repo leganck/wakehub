@@ -2,8 +2,12 @@ package main
 
 import (
 	"errors"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/leganck/wakehub/internal/clientcfg"
 )
 
 func TestNormalizeWS(t *testing.T) {
@@ -56,12 +60,51 @@ func TestWinQuote(t *testing.T) {
 	}
 }
 
-func TestBuildServiceCommandWindowsShape(t *testing.T) {
-	// Only shape-check: contains run and flags (platform-specific quoting differs).
-	cmd := buildServiceCommand(`/opt/wakehub-client`, `ws://h:8080/api/ws/client`, `tok`, `my-pc`, `systemctl poweroff`, true)
-	for _, frag := range []string{"run", "-server", "-token", "-key", "-shutdown-cmd", "-mdns=true"} {
+func TestBuildServiceCommandUsesConfigOnly(t *testing.T) {
+	cfg := filepath.Join("ProgramData", "wakehub-client", "config.json")
+	cmd := buildServiceCommand(`/opt/wakehub-client`, cfg)
+	for _, frag := range []string{"run", "-config"} {
 		if !strings.Contains(cmd, frag) {
 			t.Fatalf("missing %q in %q", frag, cmd)
 		}
+	}
+	// secrets must not appear in service command line
+	for _, bad := range []string{"-token", "-server", "-key", "-shutdown-cmd"} {
+		if strings.Contains(cmd, bad) {
+			t.Fatalf("service command should not contain %q: %s", bad, cmd)
+		}
+	}
+	if runtime.GOOS != "windows" && !strings.Contains(cmd, shellQuote(cfg)) && !strings.Contains(cmd, cfg) {
+		t.Fatalf("config path missing: %s", cmd)
+	}
+}
+
+func TestLoadRuntimeConfigMerge(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "c.json")
+	mdnsOff := false
+	if err := clientcfg.Save(path, clientcfg.Config{
+		Server: "ws://from-file/api/ws/client",
+		Token:  "file-token",
+		Key:    "file-key",
+		MDNS:   &mdnsOff,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, used, err := loadRuntimeConfig(path, "ws://cli/api/ws/client", "", "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if used != path {
+		t.Fatalf("used=%q", used)
+	}
+	if cfg.Server != "ws://cli/api/ws/client" {
+		t.Fatalf("server override: %s", cfg.Server)
+	}
+	if cfg.Token != "file-token" || cfg.Key != "file-key" {
+		t.Fatalf("file fields lost: %+v", cfg)
+	}
+	if cfg.MDNSEnabled() {
+		t.Fatal("mdns should stay false from file")
 	}
 }

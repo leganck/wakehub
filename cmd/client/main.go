@@ -15,10 +15,12 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/leganck/wakehub/internal/clientcfg"
 	"github.com/leganck/wakehub/internal/config"
 	"github.com/leganck/wakehub/internal/mdns"
 	"github.com/leganck/wakehub/internal/service"
@@ -38,6 +40,9 @@ type fatalSessionError struct {
 func (e *fatalSessionError) Error() string { return e.msg }
 
 const serviceName = "wakehub-client"
+
+// recentShutdownIDs dedupes remote shutdown requests (process-local).
+var recentShutdownIDs sync.Map // requestId -> time.Time
 
 func main() {
 	// When started by Windows SCM, we must call StartServiceCtrlDispatcher
@@ -69,7 +74,6 @@ func main() {
 		os.Exit(runService(append([]string{cmd}, os.Args[2:]...)))
 	default:
 		if strings.HasPrefix(cmd, "-") {
-			// Flags without "run" subcommand: treat as runClient args.
 			os.Exit(runClient(os.Args[1:]))
 		}
 		fmt.Fprintf(os.Stderr, "unknown command %q\n\n", cmd)
@@ -78,7 +82,7 @@ func main() {
 	}
 }
 
-// runAsWindowsService is the entry path when SCM launches binPath (… run -server …).
+// runAsWindowsService is the entry path when SCM launches binPath (… run -config …).
 func runAsWindowsService() int {
 	setupServiceLog()
 	args := os.Args[1:]
@@ -99,23 +103,31 @@ func runAsWindowsService() int {
 	return 0
 }
 
-// setupServiceLog writes logs under %ProgramData%\wakehub-client (no console when hosted by SCM).
+// setupServiceLog writes logs under the client data dir (no console when hosted by SCM).
 func setupServiceLog() {
-	base := os.Getenv("ProgramData")
-	if base == "" {
-		base = `C:\ProgramData`
-	}
-	dir := filepath.Join(base, "wakehub-client")
+	dir := clientcfg.LogDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return
 	}
-	f, err := os.OpenFile(filepath.Join(dir, "client.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	path := filepath.Join(dir, "client.log")
+	rotateLogIfNeeded(path, 5<<20) // 5 MiB
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return
 	}
 	log.SetOutput(f)
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 	log.Printf("wakehub-client %s starting as Windows service", version)
+}
+
+func rotateLogIfNeeded(path string, maxBytes int64) {
+	st, err := os.Stat(path)
+	if err != nil || st.Size() < maxBytes {
+		return
+	}
+	bak := path + ".1"
+	_ = os.Remove(bak)
+	_ = os.Rename(path, bak)
 }
 
 func printVersion() {
@@ -142,6 +154,8 @@ Examples:
   %s service uninstall
 
 Notes:
+  - service install writes settings to a config file; binPath does not embed the token
+  - re-run service install to update config (idempotent)
   - bare flags (e.g. -server ...) also run the client without the "run" subcommand
   - top-level install/start/stop/status still work but are deprecated; use "service ..."
 
@@ -151,20 +165,23 @@ Run '%s run -h' or '%s service -h' for command-specific flags.
 
 func printServiceHelp() {
 	exe := filepath.Base(os.Args[0])
+	cfgPath := clientcfg.DefaultPath()
 	fmt.Printf(`Manage the %s system service (Windows service / systemd unit).
 
 Usage:
   %s service <subcommand> [arguments]
 
 Subcommands:
-  install     Install and start the service
+  install     Install/update service and write config (idempotent)
   uninstall   Stop and remove the service
   start       Start the service
   stop        Stop the service
   status      Show service status
   help        Show this help
 
-Install flags:
+Install flags (saved to config file):
+  -config string
+        Config file path (default %q)
   -server string
         WebSocket URL (default "ws://127.0.0.1:8080/api/ws/client")
   -token string
@@ -178,10 +195,14 @@ Install flags:
 
 Examples:
   %s service install -server ws://192.168.1.50:8080/api/ws/client -token SECRET -key my-pc
+  %s service install -token NEWTOKEN   # update token only (other fields kept if present)
   %s service start
   %s service status
   %s service uninstall
-`, serviceName, exe, exe, exe, exe, exe)
+
+Config file: %s
+Service log:  %s
+`, serviceName, exe, cfgPath, exe, exe, exe, exe, exe, cfgPath, filepath.Join(clientcfg.LogDir(), "client.log"))
 }
 
 func printRunHelp(fs *flag.FlagSet) {
@@ -197,6 +218,7 @@ Flags:
 	fs.PrintDefaults()
 	fmt.Fprintf(fs.Output(), `
 Notes:
+  - flags override values from -config when non-empty
   - key must match the device "boundClientKey" on the server for remote shutdown
   - token must match server settings.clientToken when the server requires it
   - use '%s service install ...' to install as a system service
@@ -223,12 +245,25 @@ func runService(args []string) int {
 	case "stop":
 		return service.Stop(serviceName)
 	case "status":
-		return service.Status(serviceName)
+		return runStatus()
 	default:
 		fmt.Fprintf(os.Stderr, "unknown service subcommand %q\n\n", sub)
 		printServiceHelp()
 		return 2
 	}
+}
+
+func runStatus() int {
+	code := service.Status(serviceName)
+	cfgPath := clientcfg.DefaultPath()
+	if c, err := clientcfg.Load(cfgPath); err == nil {
+		fmt.Printf("\nConfig: %s\n  server: %s\n  key: %s\n  token: %s\n  mdns: %v\n",
+			cfgPath, c.Server, c.Key, clientcfg.RedactToken(c.Token), c.MDNSEnabled())
+	} else {
+		fmt.Printf("\nConfig: %s (not loaded: %v)\n", cfgPath, err)
+	}
+	fmt.Printf("Log: %s\n", filepath.Join(clientcfg.LogDir(), "client.log"))
+	return code
 }
 
 func runClient(args []string) int {
@@ -242,11 +277,13 @@ func runClientCtx(ctx context.Context, args []string) int {
 	fs.SetOutput(os.Stderr)
 	fs.Usage = func() { printRunHelp(fs) }
 
-	server := fs.String("server", "ws://127.0.0.1:8080/api/ws/client", "server websocket url")
-	token := fs.String("token", "", "client token")
-	key := fs.String("key", "", "client key (default hostname)")
-	shutdownCmd := fs.String("shutdown-cmd", defaultShutdownCmd(), "shutdown command")
-	enableMDNS := fs.Bool("mdns", true, "enable mDNS publish")
+	configPath := fs.String("config", "", "config file path (default: platform path if present)")
+	server := fs.String("server", "", "server websocket url (overrides config)")
+	token := fs.String("token", "", "client token (overrides config)")
+	key := fs.String("key", "", "client key (overrides config; default hostname)")
+	shutdownCmd := fs.String("shutdown-cmd", "", "shutdown command (overrides config)")
+	// mdns: use string so we can detect "unset" vs false when merging config
+	mdnsFlag := fs.String("mdns", "", "enable mDNS publish: true|false (overrides config; default true)")
 	showVersion := fs.Bool("version", false, "print version and exit")
 
 	if err := fs.Parse(args); err != nil {
@@ -260,7 +297,16 @@ func runClientCtx(ctx context.Context, args []string) int {
 		return 0
 	}
 
-	clientKey := *key
+	cfg, cfgFile, err := loadRuntimeConfig(*configPath, *server, *token, *key, *shutdownCmd, *mdnsFlag)
+	if err != nil {
+		log.Printf("config: %v", err)
+		return 2
+	}
+	if cfgFile != "" {
+		log.Printf("using config %s (token=%s)", cfgFile, clientcfg.RedactToken(cfg.Token))
+	}
+
+	clientKey := cfg.Key
 	if clientKey == "" {
 		h, _ := os.Hostname()
 		clientKey = h
@@ -268,7 +314,7 @@ func runClientCtx(ctx context.Context, args []string) int {
 	hostname, _ := os.Hostname()
 
 	var pub *mdns.Publisher
-	if *enableMDNS {
+	if cfg.MDNSEnabled() {
 		mac := mdns.PrimaryMAC()
 		p, err := mdns.Publish("wakehub-"+sanitizeInstance(clientKey), clientKey, hostname, mac, 9)
 		if err != nil {
@@ -290,9 +336,8 @@ func runClientCtx(ctx context.Context, args []string) int {
 			log.Printf("client stopping: %v", err)
 			return 0
 		}
-		authed, err := session(ctx, *server, *token, clientKey, hostname, *shutdownCmd)
+		authed, err := session(ctx, cfg.Server, cfg.Token, clientKey, hostname, cfg.ShutdownCmd)
 		if authed {
-			// Successful session: reset backoff for next reconnect.
 			delay = 3 * time.Second
 		}
 		if err == nil {
@@ -306,8 +351,11 @@ func runClientCtx(ctx context.Context, args []string) int {
 			log.Printf("fatal: %v (not reconnecting; fix token/key/server and restart)", fatal)
 			return 1
 		}
-		log.Printf("session ended: %v; retry in %v", err, delay)
-		timer := time.NewTimer(delay)
+		// jitter ~0–20% to avoid reconnect stampedes
+		jitter := time.Duration(int64(delay) * (time.Now().UnixNano() % 20) / 100)
+		wait := delay + jitter
+		log.Printf("session ended: %v; retry in %v", err, wait)
+		timer := time.NewTimer(wait)
 		select {
 		case <-ctx.Done():
 			timer.Stop()
@@ -321,6 +369,57 @@ func runClientCtx(ctx context.Context, args []string) int {
 			}
 		}
 	}
+}
+
+// loadRuntimeConfig merges optional file + CLI overrides.
+func loadRuntimeConfig(configPath, server, token, key, shutdownCmd, mdnsStr string) (clientcfg.Config, string, error) {
+	var cfg clientcfg.Config
+	usedPath := ""
+
+	path := strings.TrimSpace(configPath)
+	tryDefault := path == ""
+	if path == "" {
+		path = clientcfg.DefaultPath()
+	}
+	loaded, err := clientcfg.Load(path)
+	if err == nil {
+		cfg = loaded
+		usedPath = path
+	} else if !tryDefault || !errors.Is(err, os.ErrNotExist) {
+		// Explicit -config must exist; missing default is OK.
+		if !tryDefault {
+			return cfg, "", fmt.Errorf("load %s: %w", path, err)
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			// corrupt default: warn but continue with flags
+			log.Printf("warning: ignore config %s: %v", path, err)
+		}
+	}
+
+	if server != "" {
+		cfg.Server = server
+	}
+	if token != "" {
+		cfg.Token = token
+	}
+	if key != "" {
+		cfg.Key = key
+	}
+	if shutdownCmd != "" {
+		cfg.ShutdownCmd = shutdownCmd
+	}
+	if mdnsStr != "" {
+		v := strings.EqualFold(mdnsStr, "true") || mdnsStr == "1"
+		cfg.MDNS = clientcfg.BoolPtr(v)
+	}
+
+	if cfg.Server == "" {
+		cfg.Server = "ws://127.0.0.1:8080/api/ws/client"
+	}
+	if cfg.ShutdownCmd == "" {
+		cfg.ShutdownCmd = defaultShutdownCmd()
+	}
+	return cfg, usedPath, nil
 }
 
 func sanitizeInstance(s string) string {
@@ -345,7 +444,6 @@ func session(ctx context.Context, server, token, key, hostname, shutdownCmd stri
 	if err != nil {
 		return false, &fatalSessionError{msg: "invalid server url: " + err.Error()}
 	}
-	// Dial with a short bound so stop is not blocked for too long.
 	dialer := *websocket.DefaultDialer
 	dialer.HandshakeTimeout = 15 * time.Second
 	conn, _, err := dialer.DialContext(ctx, u, nil)
@@ -357,7 +455,6 @@ func session(ctx context.Context, server, token, key, hostname, shutdownCmd stri
 	}
 	defer conn.Close()
 
-	// Cancel closes the socket so blocked reads/writes unblock on service stop.
 	go func() {
 		<-ctx.Done()
 		_ = conn.Close()
@@ -369,6 +466,9 @@ func session(ctx context.Context, server, token, key, hostname, shutdownCmd stri
 		"token":    token,
 		"hostname": hostname,
 		"nics":     collectNICs(),
+		"version":  version,
+		"os":       runtime.GOOS,
+		"arch":     runtime.GOARCH,
 	}
 	if err := conn.WriteJSON(hello); err != nil {
 		if ctx.Err() != nil {
@@ -388,7 +488,7 @@ func session(ctx context.Context, server, token, key, hostname, shutdownCmd stri
 	if err := handleHelloResponse(msg); err != nil {
 		return false, err
 	}
-	log.Printf("connected as key=%s", key)
+	log.Printf("connected as key=%s version=%s", key, version)
 
 	writeMu := make(chan struct{}, 1)
 	writeMu <- struct{}{}
@@ -414,22 +514,7 @@ func session(ctx context.Context, server, token, key, hostname, shutdownCmd stri
 			}
 			switch m["type"] {
 			case "shutdown":
-				log.Printf("exec shutdown: %s", shutdownCmd)
-				err := runCommand(shutdownCmd)
-				resp := map[string]any{"type": "shutdown_ack", "ok": true}
-				if err != nil {
-					log.Printf("shutdown error: %v", err)
-					resp = map[string]any{
-						"type":  "shutdown_err",
-						"ok":    false,
-						"error": err.Error(),
-					}
-				} else {
-					log.Printf("shutdown command started ok")
-				}
-				if werr := writeJSON(resp); werr != nil {
-					log.Printf("send shutdown result: %v", werr)
-				}
+				handleShutdownMsg(m, shutdownCmd, writeJSON)
 			case "pong":
 			case "error":
 				log.Printf("server error message: %s", string(data))
@@ -457,6 +542,58 @@ func session(ctx context.Context, server, token, key, hostname, shutdownCmd stri
 	}
 }
 
+func handleShutdownMsg(m map[string]any, shutdownCmd string, writeJSON func(any) error) {
+	reqID, _ := m["requestId"].(string)
+	if reqID != "" {
+		if _, loaded := recentShutdownIDs.LoadOrStore(reqID, time.Now()); loaded {
+			log.Printf("duplicate shutdown requestId=%s ignored", reqID)
+			_ = writeJSON(map[string]any{
+				"type": "shutdown_ack", "ok": true, "status": "duplicate", "requestId": reqID,
+			})
+			return
+		}
+		// prune old ids occasionally
+		go pruneShutdownIDs()
+	}
+
+	// ACK first so the server records acceptance before the host powers off.
+	if err := writeJSON(map[string]any{
+		"type": "shutdown_ack", "ok": true, "status": "accepted", "requestId": reqID,
+	}); err != nil {
+		log.Printf("send shutdown accepted: %v", err)
+	}
+
+	log.Printf("exec shutdown requestId=%s cmd=%s", reqID, shutdownCmd)
+	go func() {
+		err := runCommand(shutdownCmd)
+		if err != nil {
+			log.Printf("shutdown error requestId=%s: %v", reqID, err)
+			if werr := writeJSON(map[string]any{
+				"type": "shutdown_err", "ok": false, "error": err.Error(), "requestId": reqID,
+			}); werr != nil {
+				log.Printf("send shutdown_err: %v", werr)
+			}
+			return
+		}
+		log.Printf("shutdown command started ok requestId=%s", reqID)
+		if werr := writeJSON(map[string]any{
+			"type": "shutdown_ack", "ok": true, "status": "executed", "requestId": reqID,
+		}); werr != nil {
+			log.Printf("send shutdown executed: %v", werr)
+		}
+	}()
+}
+
+func pruneShutdownIDs() {
+	cutoff := time.Now().Add(-10 * time.Minute)
+	recentShutdownIDs.Range(func(k, v any) bool {
+		if t, ok := v.(time.Time); ok && t.Before(cutoff) {
+			recentShutdownIDs.Delete(k)
+		}
+		return true
+	})
+}
+
 func handleHelloResponse(msg []byte) error {
 	var m map[string]any
 	if err := json.Unmarshal(msg, &m); err != nil {
@@ -478,7 +615,6 @@ func handleHelloResponse(msg []byte) error {
 		}
 		return fmt.Errorf("server error: %s", message)
 	default:
-		// Be lenient for older servers that might send plain text.
 		if strings.Contains(string(msg), "hello_ok") {
 			return nil
 		}
@@ -519,7 +655,6 @@ func collectNICs() []config.NICInfo {
 		if iface.Flags&net.FlagLoopback != 0 || len(iface.HardwareAddr) == 0 {
 			continue
 		}
-		// Skip down interfaces when possible
 		if iface.Flags&net.FlagUp == 0 {
 			continue
 		}
@@ -586,60 +721,100 @@ func runCommand(cmdline string) error {
 func runInstall(args []string) int {
 	fs := flag.NewFlagSet("service install", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	fs.Usage = func() {
-		printServiceHelp()
-	}
-	server := fs.String("server", "ws://127.0.0.1:8080/api/ws/client", "server websocket url")
+	fs.Usage = func() { printServiceHelp() }
+
+	configPath := fs.String("config", clientcfg.DefaultPath(), "config file path")
+	server := fs.String("server", "", "server websocket url")
 	token := fs.String("token", "", "client token")
-	key := fs.String("key", "", "client key (default hostname)")
-	shutdownCmd := fs.String("shutdown-cmd", defaultShutdownCmd(), "shutdown command")
-	mdnsFlag := fs.Bool("mdns", true, "enable mDNS publish")
+	key := fs.String("key", "", "client key")
+	shutdownCmd := fs.String("shutdown-cmd", "", "shutdown command")
+	mdnsFlag := fs.String("mdns", "", "enable mDNS: true|false")
+
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
 		}
 		return 2
 	}
+
+	// Start from existing config so re-install can update a single field (e.g. token).
+	cfg, err := clientcfg.Load(*configPath)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		log.Printf("load config: %v", err)
+		return 1
+	}
+	if *server != "" {
+		cfg.Server = *server
+	}
+	if *token != "" {
+		cfg.Token = *token
+	}
+	if *key != "" {
+		cfg.Key = *key
+	}
+	if *shutdownCmd != "" {
+		cfg.ShutdownCmd = *shutdownCmd
+	}
+	if *mdnsFlag != "" {
+		v := strings.EqualFold(*mdnsFlag, "true") || *mdnsFlag == "1"
+		cfg.MDNS = clientcfg.BoolPtr(v)
+	}
+	if cfg.Server == "" {
+		cfg.Server = "ws://127.0.0.1:8080/api/ws/client"
+	}
+	if cfg.ShutdownCmd == "" {
+		cfg.ShutdownCmd = defaultShutdownCmd()
+	}
+	if cfg.Key == "" {
+		h, _ := os.Hostname()
+		cfg.Key = h
+	}
+	if cfg.MDNS == nil {
+		cfg.MDNS = clientcfg.BoolPtr(true)
+	}
+
+	if err := clientcfg.Save(*configPath, cfg); err != nil {
+		log.Printf("save config: %v", err)
+		return 1
+	}
+	log.Printf("wrote config %s (server=%s key=%s token=%s)",
+		*configPath, cfg.Server, cfg.Key, clientcfg.RedactToken(cfg.Token))
+
 	exe, err := os.Executable()
 	if err != nil {
 		log.Println(err)
 		return 1
 	}
 	exe, _ = filepath.Abs(exe)
-	bin := buildServiceCommand(exe, *server, *token, *key, *shutdownCmd, *mdnsFlag)
+	bin := buildServiceCommand(exe, *configPath)
+	existed := service.Exists(serviceName)
 	if err := service.Install(serviceName, "WakeHub Client", bin); err != nil {
 		log.Println(err)
 		return 1
 	}
-	log.Printf("service installed: %s", serviceName)
+	if existed {
+		log.Printf("service updated: %s", serviceName)
+	} else {
+		log.Printf("service installed: %s", serviceName)
+	}
 	log.Printf("service command: %s", bin)
 	return 0
 }
 
-func buildServiceCommand(exe, server, token, key, shutdownCmd string, mdns bool) string {
+// buildServiceCommand returns binPath/ExecStart that only points at config (no secrets).
+func buildServiceCommand(exe, configPath string) string {
 	if runtime.GOOS == "windows" {
-		// sc.exe binPath= must be a single argument; quote each piece that needs it.
-		parts := []string{
+		return strings.Join([]string{
 			winQuote(exe),
 			"run",
-			"-server", winQuote(server),
-			"-token", winQuote(token),
-			"-key", winQuote(key),
-			"-shutdown-cmd", winQuote(shutdownCmd),
-			fmt.Sprintf("-mdns=%v", mdns),
-		}
-		return strings.Join(parts, " ")
+			"-config", winQuote(configPath),
+		}, " ")
 	}
-	parts := []string{
+	return strings.Join([]string{
 		shellQuote(exe),
 		"run",
-		"-server", shellQuote(server),
-		"-token", shellQuote(token),
-		"-key", shellQuote(key),
-		"-shutdown-cmd", shellQuote(shutdownCmd),
-		fmt.Sprintf("-mdns=%v", mdns),
-	}
-	return strings.Join(parts, " ")
+		"-config", shellQuote(configPath),
+	}, " ")
 }
 
 func winQuote(s string) string {
@@ -665,5 +840,6 @@ func runUninstall() int {
 		return 1
 	}
 	log.Println("service uninstalled")
+	log.Printf("note: config left at %s (delete manually if desired)", clientcfg.DefaultPath())
 	return 0
 }

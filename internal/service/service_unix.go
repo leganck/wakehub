@@ -18,6 +18,12 @@ func Run(name string, run Runner) error {
 	return fmt.Errorf("windows service mode is not supported on this platform")
 }
 
+// Exists reports whether a systemd unit file is present.
+func Exists(name string) bool {
+	_, err := os.Stat(unitPath(name))
+	return err == nil
+}
+
 func unitPath(name string) string {
 	return filepath.Join("/etc/systemd/system", name+".service")
 }
@@ -44,8 +50,12 @@ WantedBy=multi-user.target
 	if out, err := exec.Command("systemctl", "daemon-reload").CombinedOutput(); err != nil {
 		return fmt.Errorf("daemon-reload: %v: %s", err, out)
 	}
-	if out, err := exec.Command("systemctl", "enable", "--now", name).CombinedOutput(); err != nil {
+	// enable is idempotent; restart applies new unit/config
+	if out, err := exec.Command("systemctl", "enable", name).CombinedOutput(); err != nil {
 		return fmt.Errorf("enable: %v: %s", err, out)
+	}
+	if out, err := exec.Command("systemctl", "restart", name).CombinedOutput(); err != nil {
+		return fmt.Errorf("restart: %v: %s", err, out)
 	}
 	return nil
 }
