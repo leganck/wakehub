@@ -11,6 +11,7 @@ import (
 	"github.com/leganck/wakehub/internal/config"
 	"github.com/leganck/wakehub/internal/device"
 	"github.com/leganck/wakehub/internal/mdns"
+	"github.com/leganck/wakehub/internal/openwrt"
 	"github.com/leganck/wakehub/web"
 )
 
@@ -28,7 +29,9 @@ func New(store *config.Store, devices *device.Service, hub *clientlink.Hub, brow
 	return s
 }
 
-func (s *Server) Handler() http.Handler { return s.mux }
+func (s *Server) Handler() http.Handler {
+	return s.withBasicAuth(s.mux)
+}
 
 func (s *Server) routes() {
 	s.mux.HandleFunc("/api/status", s.handleStatus)
@@ -125,14 +128,17 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 			s.hub.SetToken(tok)
 		}
 		st := s.store.Settings()
-		writeJSON(w, 200, map[string]any{
-			"listen":          st.Listen,
-			"bemfaUID":        st.BemfaUID,
-			"clientToken":     st.ClientToken,
-			"wsPath":          st.WSPath,
-			"tokenGenerated":  tokenGenerated,
-		})
+		out := st.Public()
+		out["tokenGenerated"] = tokenGenerated
+		writeJSON(w, 200, out)
 	case http.MethodPut:
+		cur := s.store.Settings()
+		if !cur.GlobalsWritable() {
+			writeJSON(w, 403, map[string]any{
+				"error": "全局设置由 LuCI/UCI 管理，Web 端为只读。请在「服务 → WakeHub」修改，或将 web_global_mode 设为 writeback。",
+			})
+			return
+		}
 		var body struct {
 			config.Settings
 			RegenerateToken bool `json:"regenerateToken"`
@@ -142,6 +148,10 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		err := s.store.UpdateSettings(func(st *config.Settings) error {
+			// Preserve LuCI management flags (not editable from body blindly).
+			managed := st.GlobalManagedByLuci
+			mode := st.WebGlobalMode
+
 			st.Listen = body.Listen
 			st.BemfaUID = strings.TrimSpace(body.BemfaUID)
 			if body.RegenerateToken || strings.TrimSpace(body.ClientToken) == "" {
@@ -152,6 +162,14 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 			if body.WSPath != "" {
 				st.WSPath = body.WSPath
 			}
+			st.BasicAuthEnable = body.BasicAuthEnable
+			st.BasicAuthUser = strings.TrimSpace(body.BasicAuthUser)
+			// Empty password means "keep existing" (UI never echoes password back).
+			if pw := strings.TrimSpace(body.BasicAuthPassword); pw != "" {
+				st.BasicAuthPassword = pw
+			}
+			st.GlobalManagedByLuci = managed
+			st.WebGlobalMode = mode
 			return nil
 		})
 		if err != nil {
@@ -159,11 +177,22 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		st := s.store.Settings()
+		// OpenWrt writeback: mirror globals into UCI so LuCI stays source of truth on disk.
+		if st.GlobalManagedByLuci && st.GlobalsWritable() {
+			if err := openwrt.WriteGlobals(st); err != nil {
+				writeJSON(w, 200, map[string]any{
+					"settings": st.Public(),
+					"warning":  "已写入 config.json，但同步 UCI 失败: " + err.Error(),
+				})
+				return
+			}
+		}
+		pub := st.Public()
 		if err := s.devices.OnSettingsChanged(); err != nil {
-			writeJSON(w, 200, map[string]any{"settings": st, "warning": err.Error()})
+			writeJSON(w, 200, map[string]any{"settings": pub, "warning": err.Error()})
 			return
 		}
-		writeJSON(w, 200, map[string]any{"settings": st})
+		writeJSON(w, 200, map[string]any{"settings": pub})
 	default:
 		writeJSON(w, 405, map[string]any{"error": "method not allowed"})
 	}

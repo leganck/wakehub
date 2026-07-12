@@ -94,6 +94,10 @@ docker compose -f deploy/docker-compose.macvlan.yml up -d --build
 | 巴法 | 全局 UID；设备开启巴法并保存时 `CreateTopic`（插座后缀 `001`）并订阅 on/off |
 | 发现 | 客户端上报网卡 + 服务端 mDNS 浏览；支持一键建档 |
 | MQTT 面板 | Web「MQTT」页：连接状态、主题绑定、运行日志 |
+| Web 认证 | HTTP Basic；默认 **admin / admin**（可关）；客户端 WS 不受影响；API 不回传明文密码 |
+| 配置迁移 | 旧配置无 `basicAuthEnable` 时自动启用认证并写 `config.json.bak` |
+| 关机确认 | Web 关机需**两次确认** |
+| OpenWrt 全局项 | 默认以 LuCI 为准，Web 设置只读；可选 writeback 写回 UCI |
 
 ## API
 

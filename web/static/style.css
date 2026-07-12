@@ -508,6 +508,32 @@ input:focus {
   border-top: 1px solid var(--divider-soft);
 }
 
+.settings-banner {
+  margin: 0 0 var(--space-md);
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid color-mix(in srgb, var(--primary) 28%, white);
+  background: color-mix(in srgb, var(--primary) 8%, white);
+  color: var(--ink-muted-80);
+  font-size: 14px;
+  line-height: 1.43;
+}
+
+.settings-banner.warn {
+  border-color: color-mix(in srgb, #ff9f0a 40%, white);
+  background: color-mix(in srgb, #ff9f0a 12%, white);
+}
+
+.settings-banner[hidden] {
+  display: none !important;
+}
+
+#settingsForm input:disabled,
+#settingsForm button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .input-row {
   display: flex;
   gap: var(--space-xs);

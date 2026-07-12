@@ -6,4 +6,9 @@ config wakehub 'main'
 	option bemfa_uid ''
 	option client_token ''
 	option ws_path '/api/ws/client'
-
+	# Web 管理 Basic 认证（默认 admin/admin）
+	option basic_auth_enable '1'
+	option basic_auth_user 'admin'
+	option basic_auth_password 'admin'
+	# 全局项以 LuCI/UCI 为准：readonly=Web 只读；writeback=Web 可改并写回 UCI
+	option web_global_mode 'readonly'

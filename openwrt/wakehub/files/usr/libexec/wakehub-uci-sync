@@ -10,6 +10,10 @@ LISTEN_PORT=
 BEMFA_UID=
 CLIENT_TOKEN=
 WS_PATH=
+BASIC_AUTH_ENABLE=
+BASIC_AUTH_USER=
+BASIC_AUTH_PASSWORD=
+WEB_GLOBAL_MODE=
 
 load_uci() {
 	if [ -f /etc/config/wakehub ] && type config_load >/dev/null 2>&1; then
@@ -19,19 +23,36 @@ load_uci() {
 		config_get BEMFA_UID main bemfa_uid ""
 		config_get CLIENT_TOKEN main client_token ""
 		config_get WS_PATH main ws_path /api/ws/client
+		config_get_bool BASIC_AUTH_ENABLE main basic_auth_enable 1
+		config_get BASIC_AUTH_USER main basic_auth_user admin
+		config_get BASIC_AUTH_PASSWORD main basic_auth_password admin
+		config_get WEB_GLOBAL_MODE main web_global_mode readonly
 	else
 		CONFIG_PATH="${CONFIG_PATH:-/etc/wakehub/config.json}"
 		LISTEN_PORT="${LISTEN_PORT:-8080}"
 		WS_PATH="${WS_PATH:-/api/ws/client}"
+		BASIC_AUTH_ENABLE="${BASIC_AUTH_ENABLE:-1}"
+		BASIC_AUTH_USER="${BASIC_AUTH_USER:-admin}"
+		BASIC_AUTH_PASSWORD="${BASIC_AUTH_PASSWORD:-admin}"
+		WEB_GLOBAL_MODE="${WEB_GLOBAL_MODE:-readonly}"
 	fi
 
 	[ -n "$CONFIG_PATH" ] || CONFIG_PATH=/etc/wakehub/config.json
 	[ -n "$LISTEN_PORT" ] || LISTEN_PORT=8080
 	[ -n "$WS_PATH" ] || WS_PATH=/api/ws/client
+	[ -n "$BASIC_AUTH_USER" ] || BASIC_AUTH_USER=admin
+	[ -n "$BASIC_AUTH_PASSWORD" ] || BASIC_AUTH_PASSWORD=admin
+	case "$BASIC_AUTH_ENABLE" in
+	1|on|true|yes|enabled) BASIC_AUTH_ENABLE=1 ;;
+	*) BASIC_AUTH_ENABLE=0 ;;
+	esac
+	case "$WEB_GLOBAL_MODE" in
+	writeback|WRITEBACK) WEB_GLOBAL_MODE=writeback ;;
+	*) WEB_GLOBAL_MODE=readonly ;;
+	esac
 }
 
 json_escape() {
-	# Escape for JSON string values
 	printf '%s' "$1" | sed \
 		-e 's/\\/\\\\/g' \
 		-e 's/"/\\"/g' \
@@ -41,13 +62,21 @@ json_escape() {
 
 write_config() {
 	local devices="$1"
-	local listen bemfa token wspath
+	local listen bemfa token wspath user pass auth_json mode
 	local dir tmp
 
 	listen=$(json_escape ":${LISTEN_PORT}")
 	bemfa=$(json_escape "$BEMFA_UID")
 	token=$(json_escape "$CLIENT_TOKEN")
 	wspath=$(json_escape "$WS_PATH")
+	user=$(json_escape "$BASIC_AUTH_USER")
+	pass=$(json_escape "$BASIC_AUTH_PASSWORD")
+	mode=$(json_escape "$WEB_GLOBAL_MODE")
+	if [ "$BASIC_AUTH_ENABLE" = "1" ]; then
+		auth_json="true"
+	else
+		auth_json="false"
+	fi
 
 	[ -n "$devices" ] || devices='[]'
 
@@ -57,11 +86,17 @@ write_config() {
 
 	cat >"$tmp" <<EOF
 {
+  "version": 1,
   "settings": {
     "listen": "${listen}",
     "bemfaUID": "${bemfa}",
     "clientToken": "${token}",
-    "wsPath": "${wspath}"
+    "wsPath": "${wspath}",
+    "basicAuthEnable": ${auth_json},
+    "basicAuthUser": "${user}",
+    "basicAuthPassword": "${pass}",
+    "globalManagedByLuci": true,
+    "webGlobalMode": "${mode}"
   },
   "devices": ${devices}
 }
@@ -74,7 +109,6 @@ extract_devices() {
 	local raw
 
 	if command -v jsonfilter >/dev/null 2>&1; then
-		# jsonfilter prints the value; for arrays it may dump JSON text
 		raw=$(jsonfilter -i "$cfg" -e '@.devices' 2>/dev/null) || raw=
 		if [ -n "$raw" ]; then
 			case "$raw" in
@@ -87,7 +121,6 @@ extract_devices() {
 		jq -c '.devices // []' "$cfg" 2>/dev/null && return 0
 	fi
 
-	# Last resort: keep existing file untouched by returning empty sentinel
 	return 1
 }
 
@@ -100,8 +133,6 @@ main() {
 	fi
 
 	devices=$(extract_devices "$CONFIG_PATH") || {
-		# Could not parse devices — do not clobber device list.
-		# Only ensure listen override is applied via process -listen flag.
 		echo "wakehub-uci-sync: keep existing $CONFIG_PATH (devices extract failed)" >&2
 		return 0
 	}

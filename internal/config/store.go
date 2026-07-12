@@ -13,6 +13,8 @@ import (
 
 const DefaultListen = ":8080"
 const DefaultWSPath = "/api/ws/client"
+const DefaultAuthUser = "admin"
+const DefaultAuthPassword = "admin"
 
 type NICInfo struct {
 	Name      string   `json:"name"`
@@ -36,14 +38,31 @@ type Device struct {
 	UpdatedAt      int64  `json:"updatedAt,omitempty"`
 }
 
+// WebGlobalMode values when globals are managed outside plain config.json (e.g. OpenWrt LuCI).
+const (
+	WebGlobalModeReadonly  = "readonly"  // Web UI cannot change globals
+	WebGlobalModeWriteback = "writeback" // Web UI may change globals and sync back to UCI
+)
+
 type Settings struct {
-	Listen      string `json:"listen"`
-	BemfaUID    string `json:"bemfaUID"`
-	ClientToken string `json:"clientToken"`
-	WSPath      string `json:"wsPath"`
+	Listen            string `json:"listen"`
+	BemfaUID          string `json:"bemfaUID"`
+	ClientToken       string `json:"clientToken"`
+	WSPath            string `json:"wsPath"`
+	BasicAuthEnable   bool   `json:"basicAuthEnable"`
+	BasicAuthUser     string `json:"basicAuthUser"`
+	BasicAuthPassword string `json:"basicAuthPassword"`
+	// GlobalManagedByLuci marks OpenWrt installs where UCI/LuCI owns global settings.
+	GlobalManagedByLuci bool `json:"globalManagedByLuci"`
+	// WebGlobalMode is "readonly" (default when managed) or "writeback".
+	WebGlobalMode string `json:"webGlobalMode,omitempty"`
 }
 
+// CurrentConfigVersion is written into config files after migrations.
+const CurrentConfigVersion = 1
+
 type File struct {
+	Version  int      `json:"version,omitempty"`
 	Settings Settings `json:"settings"`
 	Devices  []Device `json:"devices"`
 }
@@ -56,9 +75,13 @@ type Store struct {
 
 func DefaultFile() File {
 	return File{
+		Version: CurrentConfigVersion,
 		Settings: Settings{
-			Listen: DefaultListen,
-			WSPath: DefaultWSPath,
+			Listen:            DefaultListen,
+			WSPath:            DefaultWSPath,
+			BasicAuthEnable:   true,
+			BasicAuthUser:     DefaultAuthUser,
+			BasicAuthPassword: DefaultAuthPassword,
 		},
 		Devices: []Device{},
 	}
@@ -82,13 +105,60 @@ func Open(path string) (*Store, error) {
 		}
 		return nil, err
 	}
+	migrated := false
 	if len(b) > 0 {
 		if err := json.Unmarshal(b, &s.data); err != nil {
 			return nil, fmt.Errorf("parse config: %w", err)
 		}
+		if needsBasicAuthMigration(b) {
+			// Legacy configs without basicAuthEnable were effectively open.
+			// Enable Basic auth with default admin/admin and bump version.
+			s.data.Settings.BasicAuthEnable = true
+			if strings.TrimSpace(s.data.Settings.BasicAuthUser) == "" {
+				s.data.Settings.BasicAuthUser = DefaultAuthUser
+			}
+			if strings.TrimSpace(s.data.Settings.BasicAuthPassword) == "" {
+				s.data.Settings.BasicAuthPassword = DefaultAuthPassword
+			}
+			migrated = true
+		}
 	}
 	s.normalize()
+	if s.data.Version < CurrentConfigVersion {
+		s.data.Version = CurrentConfigVersion
+		migrated = true
+	}
+	if migrated {
+		_ = backupConfigFile(path)
+		if err := s.Save(); err != nil {
+			return nil, fmt.Errorf("migrate config: %w", err)
+		}
+	}
 	return s, nil
+}
+
+// needsBasicAuthMigration is true when settings JSON has no basicAuthEnable key
+// (pre-auth releases). Empty files / missing settings also migrate.
+func needsBasicAuthMigration(raw []byte) bool {
+	var top struct {
+		Settings map[string]json.RawMessage `json:"settings"`
+	}
+	if err := json.Unmarshal(raw, &top); err != nil {
+		return false
+	}
+	if top.Settings == nil {
+		return true
+	}
+	_, ok := top.Settings["basicAuthEnable"]
+	return !ok
+}
+
+func backupConfigFile(path string) error {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path+".bak", b, 0o644)
 }
 
 func (s *Store) normalize() {
@@ -97,6 +167,12 @@ func (s *Store) normalize() {
 	}
 	if s.data.Settings.WSPath == "" {
 		s.data.Settings.WSPath = DefaultWSPath
+	}
+	if strings.TrimSpace(s.data.Settings.BasicAuthUser) == "" {
+		s.data.Settings.BasicAuthUser = DefaultAuthUser
+	}
+	if strings.TrimSpace(s.data.Settings.BasicAuthPassword) == "" {
+		s.data.Settings.BasicAuthPassword = DefaultAuthPassword
 	}
 	if s.data.Devices == nil {
 		s.data.Devices = []Device{}
@@ -139,7 +215,62 @@ func (s *Store) UpdateSettings(fn func(*Settings) error) error {
 	if s.data.Settings.WSPath == "" {
 		s.data.Settings.WSPath = DefaultWSPath
 	}
+	if strings.TrimSpace(s.data.Settings.BasicAuthUser) == "" {
+		s.data.Settings.BasicAuthUser = DefaultAuthUser
+	}
+	// Do not force-default password here: empty may mean "leave unchanged" on API update.
+	// Missing password is filled in normalize() after load / migration.
+	if strings.TrimSpace(s.data.Settings.BasicAuthPassword) == "" {
+		s.data.Settings.BasicAuthPassword = DefaultAuthPassword
+	}
 	return s.saveLocked()
+}
+
+// GlobalsWritable reports whether the Web API may modify global settings.
+// When GlobalManagedByLuci is set, only WebGlobalModeWriteback allows writes.
+func (st Settings) GlobalsWritable() bool {
+	if !st.GlobalManagedByLuci {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(st.WebGlobalMode), WebGlobalModeWriteback)
+}
+
+// PublicSettings returns settings safe for API responses (password never included).
+func (st Settings) Public() map[string]any {
+	mode := strings.TrimSpace(st.WebGlobalMode)
+	if st.GlobalManagedByLuci && mode == "" {
+		mode = WebGlobalModeReadonly
+	}
+	return map[string]any{
+		"listen":                 st.Listen,
+		"bemfaUID":               st.BemfaUID,
+		"clientToken":            st.ClientToken,
+		"wsPath":                 st.WSPath,
+		"basicAuthEnable":        st.BasicAuthEnable,
+		"basicAuthUser":          st.BasicAuthUser,
+		"basicAuthPasswordSet":   strings.TrimSpace(st.BasicAuthPassword) != "",
+		"globalManagedByLuci":    st.GlobalManagedByLuci,
+		"webGlobalMode":          mode,
+		"globalSettingsWritable": st.GlobalsWritable(),
+	}
+}
+
+// ListenPort extracts the TCP port from Listen (e.g. ":8080" -> "8080").
+func (st Settings) ListenPort() string {
+	s := strings.TrimSpace(st.Listen)
+	if s == "" {
+		return "8080"
+	}
+	if i := strings.LastIndex(s, ":"); i >= 0 && i+1 < len(s) {
+		p := s[i+1:]
+		if p != "" {
+			return p
+		}
+	}
+	if strings.Trim(s, "0123456789") == "" {
+		return s
+	}
+	return "8080"
 }
 
 // EnsureClientToken generates and persists a random client token when empty.

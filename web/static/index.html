@@ -114,11 +114,27 @@
             <p class="section-desc">全局监听、巴法与客户端鉴权</p>
           </div>
         </div>
+        <div id="globalSettingsBanner" class="settings-banner" hidden></div>
         <form id="settingsForm" class="card form-card">
           <label class="field">
             <span class="field-label">监听地址</span>
             <input name="listen" placeholder=":8080" autocomplete="off" />
           </label>
+          <label class="check">
+            <input name="basicAuthEnable" type="checkbox" />
+            <span>启用 Web 管理 Basic 认证</span>
+          </label>
+          <div class="field-grid">
+            <label class="field">
+              <span class="field-label">管理用户名</span>
+              <input name="basicAuthUser" placeholder="admin" autocomplete="username" />
+            </label>
+            <label class="field">
+              <span class="field-label">管理密码</span>
+              <input name="basicAuthPassword" type="password" placeholder="留空则不修改" autocomplete="new-password" />
+            </label>
+          </div>
+          <p id="authPasswordHint" class="fine-print">默认用户名/密码 admin。客户端 WebSocket 不受 Basic 影响（使用客户端 Token）。API 不回传明文密码。</p>
           <label class="field">
             <span class="field-label">巴法 UID（私钥）</span>
             <input name="bemfaUID" placeholder="uid" autocomplete="off" />

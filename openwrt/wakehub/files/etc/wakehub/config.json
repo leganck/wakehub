@@ -1,9 +1,15 @@
 {
+  "version": 1,
   "settings": {
     "listen": ":8080",
     "bemfaUID": "",
     "clientToken": "",
-    "wsPath": "/api/ws/client"
+    "wsPath": "/api/ws/client",
+    "basicAuthEnable": true,
+    "basicAuthUser": "admin",
+    "basicAuthPassword": "admin",
+    "globalManagedByLuci": true,
+    "webGlobalMode": "readonly"
   },
   "devices": []
 }

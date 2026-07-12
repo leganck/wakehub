@@ -83,12 +83,19 @@ LuCI：**服务 → WakeHub**（启用并保存应用）。
 |------|------|
 | `enabled` | `1` 启动服务 |
 | `listen_port` | **运行端口**（HTTP/WebSocket，默认 8080；LuCI 可改） |
+| `basic_auth_enable` | Web 管理 HTTP Basic 认证（默认 `1`） |
+| `basic_auth_user` | 管理用户名（默认 `admin`） |
+| `basic_auth_password` | 管理密码（默认 `admin`） |
+| `web_global_mode` | `readonly`（默认，Web 全局设置只读）或 `writeback`（Web 可改并写回 UCI） |
 | `config_path` | JSON 配置路径 |
 | `bemfa_uid` | 巴法私钥 |
 | `client_token` | 客户端 WS Token |
 | `ws_path` | WS 路径 |
 
-启动时 `/etc/init.d/wakehub` 使用 `-listen :$listen_port`，与 LuCI「运行端口」一致。
+启动时 `/etc/init.d/wakehub` 使用 `-listen :$listen_port`，与 LuCI「运行端口」一致。  
+Basic 认证保护 Web/API；**客户端 WebSocket 路径不校验 Basic**（仍用 client token）。  
+
+**全局项归属**：OpenWrt 上端口 / 认证 / 巴法 UID / Token / WS 路径以 **LuCI/UCI 为准**（`globalManagedByLuci`）。默认 Web 设置页只读；若需 Web 也能改，在 LuCI 将「Web 全局设置模式」设为 writeback。
 
 启动时 `/usr/libexec/wakehub-uci-sync` 将上述全局项写入 `config.json` 的 `settings`，并尽量保留已有 `devices[]`。
 

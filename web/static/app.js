@@ -3,12 +3,105 @@ const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 
 async function api(path, opts = {}) {
   const res = await fetch(path, {
+    credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
     ...opts,
   });
+  if (res.status === 401) {
+    throw new Error('需要登录（HTTP Basic 认证）。请刷新页面并输入用户名/密码。');
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || res.statusText);
   return data;
+}
+
+function settingsBodyFromForm(f, extra = {}) {
+  const body = {
+    listen: f.listen.value,
+    bemfaUID: f.bemfaUID.value,
+    clientToken: f.clientToken.value,
+    wsPath: f.wsPath.value,
+    basicAuthEnable: !!f.basicAuthEnable?.checked,
+    basicAuthUser: (f.basicAuthUser?.value || 'admin').trim() || 'admin',
+    ...extra,
+  };
+  // Only send password when user typed a new one (empty = keep server-side value).
+  const pw = (f.basicAuthPassword?.value || '').trim();
+  if (pw) body.basicAuthPassword = pw;
+  return body;
+}
+
+function applySettingsToForm(f, st) {
+  if (!st || !f) return;
+  if (st.listen !== undefined) f.listen.value = st.listen || '';
+  if (st.bemfaUID !== undefined) f.bemfaUID.value = st.bemfaUID || '';
+  if (st.clientToken !== undefined) f.clientToken.value = st.clientToken || '';
+  if (st.wsPath !== undefined) f.wsPath.value = st.wsPath || '/api/ws/client';
+  if (f.basicAuthEnable) f.basicAuthEnable.checked = !!st.basicAuthEnable;
+  if (f.basicAuthUser) f.basicAuthUser.value = st.basicAuthUser || 'admin';
+  // Never fill password from API (not returned). Clear input after load/save.
+  if (f.basicAuthPassword) {
+    f.basicAuthPassword.value = '';
+    f.basicAuthPassword.placeholder = st.basicAuthPasswordSet
+      ? '已设置，留空则不修改'
+      : '默认 admin，建议修改';
+  }
+  const authHint = $('#authPasswordHint');
+  if (authHint) {
+    authHint.textContent = st.basicAuthPasswordSet
+      ? '管理密码已设置（接口不回传明文）。留空保存表示不修改；填写则更新密码。客户端 WS 不受 Basic 影响。'
+      : '尚未设置管理密码时服务端使用默认 admin。建议启用认证后立即修改。客户端 WS 不受 Basic 影响。';
+  }
+  applyGlobalSettingsLock(st);
+}
+
+/** Global fields owned by LuCI when globalManagedByLuci && !globalSettingsWritable */
+const GLOBAL_SETTING_FIELDS = [
+  'listen',
+  'basicAuthEnable',
+  'basicAuthUser',
+  'basicAuthPassword',
+  'bemfaUID',
+  'clientToken',
+  'wsPath',
+];
+
+function applyGlobalSettingsLock(st) {
+  // Default writable when field absent (non-OpenWrt).
+  const canWrite = st.globalSettingsWritable !== undefined ? !!st.globalSettingsWritable : true;
+
+  const banner = $('#globalSettingsBanner');
+  if (banner) {
+    if (st.globalManagedByLuci && !canWrite) {
+      banner.hidden = false;
+      banner.textContent =
+        '全局设置由 LuCI（服务 → WakeHub）管理，本页只读。设备增删/唤醒/关机仍可在此操作。';
+      banner.className = 'settings-banner';
+    } else if (st.globalManagedByLuci && canWrite) {
+      banner.hidden = false;
+      banner.textContent =
+        '全局设置由 LuCI 管理；当前为 writeback 模式，Web 保存会写回 UCI。改端口后请在 LuCI 重启服务。';
+      banner.className = 'settings-banner warn';
+    } else {
+      banner.hidden = true;
+    }
+  }
+
+  const f = $('#settingsForm');
+  if (!f) return;
+  GLOBAL_SETTING_FIELDS.forEach((name) => {
+    const el = f.elements.namedItem(name);
+    if (!el) return;
+    if (el instanceof RadioNodeList) return;
+    el.disabled = !canWrite;
+  });
+  const regen = $('#btnRegenToken');
+  if (regen) regen.disabled = !canWrite;
+  const submit = f.querySelector('button[type="submit"]');
+  if (submit) {
+    submit.disabled = !canWrite;
+    submit.textContent = canWrite ? '保存设置' : '由 LuCI 管理（只读）';
+  }
 }
 
 function showTab(name) {
@@ -175,6 +268,23 @@ function deviceCard(d) {
   };
   el.querySelector('[data-act=shutdown]').onclick = async () => {
     const msg = el.querySelector('.actmsg');
+    const name = d.name || d.id || '该设备';
+    const ok = confirm(
+      `确认向「${name}」发送关机指令？\n\n` +
+        `设备将立即关机（需客户端在线）。\n` +
+        `此操作不可撤销，请再次确认。`
+    );
+    if (!ok) {
+      msg.className = 'actmsg muted';
+      msg.textContent = '已取消关机';
+      return;
+    }
+    const ok2 = confirm(`最后确认：立即关闭「${name}」？`);
+    if (!ok2) {
+      msg.className = 'actmsg muted';
+      msg.textContent = '已取消关机';
+      return;
+    }
     try {
       await api('/api/devices/' + d.id + '/shutdown', { method: 'POST', body: '{}' });
       msg.className = 'ok actmsg';
@@ -367,10 +477,7 @@ function updateClientCommands() {
 async function loadSettings() {
   const st = await api('/api/settings');
   const f = $('#settingsForm');
-  f.listen.value = st.listen || '';
-  f.bemfaUID.value = st.bemfaUID || '';
-  f.clientToken.value = st.clientToken || '';
-  f.wsPath.value = st.wsPath || '/api/ws/client';
+  applySettingsToForm(f, st);
 
   const hint = $('#tokenHint');
   if (hint) {
@@ -384,17 +491,9 @@ async function loadSettings() {
 $('#settingsForm')?.addEventListener('submit', async (ev) => {
   ev.preventDefault();
   const f = ev.target;
-  const body = {
-    listen: f.listen.value,
-    bemfaUID: f.bemfaUID.value,
-    clientToken: f.clientToken.value,
-    wsPath: f.wsPath.value,
-  };
+  const body = settingsBodyFromForm(f);
   const res = await api('/api/settings', { method: 'PUT', body: JSON.stringify(body) });
-  const st = res.settings || res;
-  if (st.clientToken !== undefined) f.clientToken.value = st.clientToken || '';
-  if (st.listen !== undefined) f.listen.value = st.listen || '';
-  if (st.wsPath !== undefined) f.wsPath.value = st.wsPath || '';
+  applySettingsToForm(f, res.settings || res);
   if (res.warning) alert('已保存，但巴法重连警告: ' + res.warning);
   else alert('已保存');
   updateClientCommands();
@@ -405,16 +504,9 @@ $('#settingsForm')?.addEventListener('submit', async (ev) => {
 $('#btnRegenToken')?.addEventListener('click', async () => {
   if (!confirm('重新生成 Token 后，旧客户端需更新参数才能连接，继续？')) return;
   const f = $('#settingsForm');
-  const body = {
-    listen: f.listen.value,
-    bemfaUID: f.bemfaUID.value,
-    clientToken: f.clientToken.value,
-    wsPath: f.wsPath.value,
-    regenerateToken: true,
-  };
+  const body = settingsBodyFromForm(f, { regenerateToken: true });
   const res = await api('/api/settings', { method: 'PUT', body: JSON.stringify(body) });
-  const st = res.settings || res;
-  f.clientToken.value = st.clientToken || '';
+  applySettingsToForm(f, res.settings || res);
   updateClientCommands();
   const hint = $('#tokenHint');
   if (hint) hint.textContent = '已重新生成 Token 并保存。';

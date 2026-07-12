@@ -144,6 +144,31 @@ return view.extend({
 		o.rmempty = false;
 		o.description = _('HTTP / WebSocket 监听端口，默认 8080。');
 
+		o = s.option(form.Flag, 'basic_auth_enable', _('启用 Web Basic 认证'));
+		o.default = o.enabled;
+		o.rmempty = false;
+		o.description = _('保护内置管理页面与 REST API。客户端 WebSocket 不走 Basic（使用客户端 Token）。');
+
+		o = s.option(form.Value, 'basic_auth_user', _('管理用户名'));
+		o.placeholder = 'admin';
+		o.default = 'admin';
+		o.rmempty = false;
+		o.datatype = 'string';
+
+		o = s.option(form.Value, 'basic_auth_password', _('管理密码'));
+		o.password = true;
+		o.placeholder = 'admin';
+		o.default = 'admin';
+		o.rmempty = false;
+		o.description = _('默认用户名/密码均为 admin，请尽快修改。');
+
+		o = s.option(form.ListValue, 'web_global_mode', _('Web 全局设置模式'));
+		o.value('readonly', _('只读（推荐：以 LuCI 为准）'));
+		o.value('writeback', _('允许 Web 修改并写回 UCI'));
+		o.default = 'readonly';
+		o.rmempty = false;
+		o.description = _('端口、认证、巴法 UID、客户端 Token、WS 路径为全局项。只读时内置 Web 设置页不可改；writeback 时 Web 可改并同步到 UCI。设备管理始终在 Web。');
+
 		o = s.option(form.Value, 'config_path', _('配置文件路径'));
 		o.placeholder = '/etc/wakehub/config.json';
 		o.rmempty = false;
